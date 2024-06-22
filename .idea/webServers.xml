@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="WebServers">
+    <option name="servers">
+      <webServer id="a84ebec6-1775-4c06-a161-ab5bb3613a1a" name="Monarco">
+        <fileTransfer rootFolder="/usr/local/bin" accessType="SFTP" host="192.168.243.60" port="22" sshConfigId="a7608036-87a0-4c79-a9f0-fbf6ed9f05d8" sshConfig="root@192.168.243.60:22 password">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" keepAliveTimeout="0" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
+    </option>
+  </component>
+</project>
