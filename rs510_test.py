@@ -35,8 +35,8 @@ from pymodbus.exceptions import ModbusException
 # P07-02 (0x0702): Run status readback (1=running forward)
 # 0x3000+: read-only status block
 # 0x2000/0x2001/0x2100+: do NOT exist on this device
-REG_CONTROL_CMD   = 0x0700  # P07-00
-REG_FREQ_SETPOINT = 0x0701  # P07-01
+REG_CONTROL_CMD   = 0x0700  # P07-00: run/stop command
+REG_FREQ_SETPOINT = 0x0008  # P00-08: live communication frequency (resets on disconnect if P09-06=0)
 REG_STATUS_WORD   = 0x3000
 
 CMD_STOP        = 0x0000
@@ -229,6 +229,35 @@ async def read_param(client: AsyncModbusSerialClient, slave: int, addr_hex: str)
         print(f"Modbus-Fehler: {exc}")
 
 
+async def run_heartbeat(
+    client: AsyncModbusSerialClient, slave: int, freq_hz: float, interval: float = 1.0,
+) -> None:
+    """Keep connection open and refresh P00-08 + P07-00 every interval seconds.
+
+    Use this when P09-06=0 causes the VFD to reset frequency on disconnect.
+    Press Ctrl+C to stop (sends stop command before exiting).
+    """
+    freq_value = int(round(freq_hz * 100))
+    print(f"Heartbeat-Modus: {freq_hz:.2f} Hz, Refresh alle {interval:.1f} s — Ctrl+C zum Stoppen")
+    try:
+        iteration = 0
+        while True:
+            # Write frequency to P00-08
+            r1 = await client.write_register(address=0x0008, value=freq_value, slave=slave)
+            # Write run-forward to P07-00
+            r2 = await client.write_register(address=REG_CONTROL_CMD, value=CMD_RUN_FORWARD, slave=slave)
+            ok = not r1.isError() and not r2.isError()
+            if iteration % 5 == 0:  # print status every 5 iterations
+                status = "✓" if ok else "✗"
+                print(f"  [{iteration:4d}] {status} P00-08={freq_value} P07-00={CMD_RUN_FORWARD}")
+            iteration += 1
+            await asyncio.sleep(interval)
+    except KeyboardInterrupt:
+        print("\nStoppe Motor ...")
+        await client.write_register(address=REG_CONTROL_CMD, value=CMD_STOP, slave=slave)
+        print("Stopp-Befehl gesendet.")
+
+
 async def write_param(client: AsyncModbusSerialClient, slave: int, addr_hex: str, value: int) -> None:
     addr = int(addr_hex, 16)
     try:
@@ -286,6 +315,10 @@ async def main() -> None:
         elif action.startswith("freq="):
             freq = float(action.split("=", 1)[1])
             await set_frequency(client, args.slave, freq)
+        elif action.startswith("loop="):
+            # Keep connection open and refresh freq+run every second (Heartbeat)
+            freq = float(action.split("=", 1)[1])
+            await run_heartbeat(client, args.slave, freq)
         elif action.startswith("param="):
             addr_hex = action.split("=", 1)[1]
             await read_param(client, args.slave, addr_hex)
