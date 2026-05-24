@@ -11,12 +11,7 @@ from pymodbus.client import AsyncModbusSerialClient
 from pymodbus.exceptions import ModbusException
 
 from .const import (
-    CMD_EMERGENCY_STOP,
     CMD_RESET_FAULT,
-    CMD_RUN_FORWARD,
-    CMD_RUN_REVERSE,
-    CMD_STOP,
-    PARAM_COMM_FREQ_CMD,
     REG_CONTROL_CMD,
     REG_FREQ_SETPOINT,
     REG_MONITOR_COUNT,
@@ -78,8 +73,9 @@ class RS510ModbusClient:
         self._client: AsyncModbusSerialClient | None = None
         self._lock = asyncio.Lock()
         self._consecutive_failures = 0
-        # 0x2001 does not exist on RS510-2P7-SH1; always write freq to P00-08 (PARAM_COMM_FREQ_CMD).
-        self._use_param_freq = True
+        self._last_freq_value: int = 1500  # default 15.00 Hz for async_run_forward
+        # RS510-2P7-SH1: 0x1000 is the live freq/run command register.
+        # Writing 0 stops; writing freq*100 (>= min freq) starts the motor.
 
     # ------------------------------------------------------------------
     # Connection management
@@ -184,25 +180,28 @@ class RS510ModbusClient:
     # ------------------------------------------------------------------
 
     async def async_run_forward(self) -> bool:
-        return await self._write_control(CMD_RUN_FORWARD)
+        """Start motor at the last setpoint (or minimum frequency if none set)."""
+        return await self._write_register(REG_FREQ_SETPOINT, self._last_freq_value or 1500)
 
     async def async_run_reverse(self) -> bool:
-        return await self._write_control(CMD_RUN_REVERSE)
+        """Not supported via 0x1000 register; change P00-01 direction parameter instead."""
+        _LOGGER.warning("RS510: reverse run not supported via freq register; set P00-01 manually")
+        return False
 
     async def async_stop(self) -> bool:
-        return await self._write_control(CMD_STOP)
+        """Stop motor by writing 0 to the frequency command register."""
+        return await self._write_register(REG_FREQ_SETPOINT, 0)
 
     async def async_emergency_stop(self) -> bool:
-        return await self._write_control(CMD_EMERGENCY_STOP)
+        return await self.async_stop()
 
     async def async_reset_fault(self) -> bool:
         return await self._write_control(CMD_RESET_FAULT)
 
     async def async_set_frequency(self, frequency_hz: float) -> bool:
-        """Set the output frequency setpoint in Hz."""
+        """Set output frequency and start motor. Write 0 to stop."""
         value = int(round(frequency_hz * 100))
-        if self._use_param_freq:
-            return await self._write_register(PARAM_COMM_FREQ_CMD, value)
+        self._last_freq_value = value
         return await self._write_register(REG_FREQ_SETPOINT, value)
 
     async def async_read_parameter(self, address: int) -> Optional[int]:

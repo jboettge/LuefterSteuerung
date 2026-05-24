@@ -29,30 +29,16 @@ import sys
 from pymodbus.client import AsyncModbusSerialClient
 from pymodbus.exceptions import ModbusException
 
-# --- Register addresses ---
-# NOTE: On this RS510-2P7-SH1 unit 0x2000/0x2001/0x2100+ do NOT respond.
-# 0x3000 is the only non-parameter register that answers (probe value=0).
-# Hypothesis: 0x3000 is the actual control/status register on INVT-class VFDs.
-REG_CONTROL_CMD   = 0x3000  # was 0x2000 – does not exist on this device
-REG_FREQ_SETPOINT = 0x2001  # still unknown; freq written to P00-08 (0x0008) as fallback
-REG_STATUS_WORD   = 0x3000  # was 0x2100 – does not exist on this device
+# --- Register addresses (confirmed on RS510-2P7-SH1) ---
+# 0x1000: live frequency/run command (FC 06 read+write confirmed).
+#         Write 0 = stop. Write freq*100 (>= P00-13 min) = run at that freq.
+# 0x3000+: read-only status block. 0x2000/0x2001/0x2100+ do NOT exist.
+REG_CONTROL_CMD   = 0x1000  # write 0 to stop
+REG_FREQ_SETPOINT = 0x1000  # write freq*100 to run (same register)
+REG_STATUS_WORD   = 0x3000  # read-only; 0 when stopped
 
-# Confirmed by LinuxCNC vfdb_vfd.c and Delta VFD documentation
-CMD_STOP          = 0x0001  # Bit 0
-CMD_RUN_FORWARD   = 0x0012  # Bit 1 (RUN) + Bit 4 (FWD)
-CMD_RUN_REVERSE   = 0x0022  # Bit 1 (RUN) + Bit 5 (REV)
-CMD_RESET_FAULT   = 0x2000  # Bit 13
-CMD_EMERGENCY     = 0x1000  # Bit 12
-
-# Status word bits
-STATUS_READY   = 0x0001
-STATUS_RUNNING = 0x0002
-STATUS_REVERSE = 0x0004
-STATUS_FAULT   = 0x0008
-STATUS_ALARM   = 0x0010
-
-# Parameter addresses
-PARAM_COMM_FREQ = 0x0008  # P00-08: communication frequency (0.01 Hz)
+# CMD_RESET_FAULT may still be needed; other CMD_* are not used on RS510-2P7-SH1
+CMD_RESET_FAULT   = 0x2000  # kept for fault-reset attempt via write_cmd
 
 FAULT_CODES = {
     0:  "Kein Fehler",
@@ -176,19 +162,17 @@ async def write_cmd(client: AsyncModbusSerialClient, slave: int, cmd: int, label
 
 
 async def set_frequency(client: AsyncModbusSerialClient, slave: int, freq_hz: float) -> None:
+    """Write frequency to 0x1000 (run at freq if > 0, stop if 0)."""
     value = int(round(freq_hz * 100))
-    # Try dedicated register first, fall back to P00-08
     try:
         result = await client.write_register(address=REG_FREQ_SETPOINT, value=value, slave=slave)
         if result.isError():
-            print(f"Register 0x2001 nicht verfügbar, nutze P00-08 (0x0008) ...")
-            result = await client.write_register(address=PARAM_COMM_FREQ, value=value, slave=slave)
-            if result.isError():
-                print(f"Schreibfehler: {result}")
-                return
-            print(f"OK: Frequenz {freq_hz:.2f} Hz via P00-08 gesetzt (Wert: {value})")
+            print(f"Schreibfehler 0x{REG_FREQ_SETPOINT:04X}: {result}")
         else:
-            print(f"OK: Frequenz {freq_hz:.2f} Hz via 0x2001 gesetzt (Wert: {value})")
+            if value == 0:
+                print(f"OK: Stopp-Befehl via 0x{REG_FREQ_SETPOINT:04X} (Frequenz = 0)")
+            else:
+                print(f"OK: Frequenz {freq_hz:.2f} Hz via 0x{REG_FREQ_SETPOINT:04X} gesetzt (Wert: {value})")
     except ModbusException as exc:
         print(f"Modbus-Fehler: {exc}")
 
@@ -251,13 +235,15 @@ async def main() -> None:
         if action == "status":
             await read_status(client, args.slave)
         elif action == "run":
-            await write_cmd(client, args.slave, CMD_RUN_FORWARD, "Vorwärts starten")
+            # Run forward at last set frequency (default 15 Hz = 1500)
+            await set_frequency(client, args.slave, 15.0)
         elif action == "run_rev":
-            await write_cmd(client, args.slave, CMD_RUN_REVERSE, "Rückwärts starten")
+            print("Rückwärts: P00-01=1 setzen, dann 'run' verwenden.")
+            print("  python rs510_test.py --port ... write=0001,1")
         elif action == "stop":
-            await write_cmd(client, args.slave, CMD_STOP, "Stopp")
+            await set_frequency(client, args.slave, 0.0)
         elif action == "emergency":
-            await write_cmd(client, args.slave, CMD_EMERGENCY, "Not-Stopp")
+            await set_frequency(client, args.slave, 0.0)
         elif action == "reset":
             await write_cmd(client, args.slave, CMD_RESET_FAULT, "Fehler zurücksetzen")
         elif action.startswith("freq="):
