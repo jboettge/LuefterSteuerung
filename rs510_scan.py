@@ -39,6 +39,15 @@ PROBE_REGISTERS = [
     (0x000D, "P00-13 Min-Frequenz"),
     (0x0900, "P09-00 Slave-Adresse"),
     (0x0902, "P09-02 Baudrate-Code"),
+    # INVT-style control block (GD100/CHF series)
+    (0x1000, "0x1000 INVT Steuerregister?"),
+    (0x1001, "0x1001 INVT Frequenz-Sollwert?"),
+    (0x1002, "0x1002 INVT Status?"),
+    (0x1003, "0x1003"),
+    (0x1004, "0x1004"),
+    (0x1005, "0x1005"),
+    (0x100A, "0x100A"),
+    (0x100F, "0x100F"),
     # Delta VFD-EL dedicated registers (may not exist on RS510)
     (0x2000, "Steuerregister (0x2000)"),
     (0x2001, "Frequenz-Sollwert (0x2001)"),
