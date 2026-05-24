@@ -29,39 +29,57 @@ import sys
 from pymodbus.client import AsyncModbusSerialClient
 from pymodbus.exceptions import ModbusException
 
-# --- Register addresses (confirmed on RS510-2P7-SH1) ---
-# P07-00 (0x0700): Run/Stop command  — 0=stop, 1=forward, 2=reverse
-# P07-03 (0x0703): Live frequency command (0.01 Hz) — CONFIRMED:
-#                  writing 5000 triggered OL1 overload (motor drew current at 50 Hz).
-#                  Use gentle start values (≤2500) on standing motor.
-# P07-01/02 : status echo registers, not live command registers
-# 0x3000+: read-only status block
-# 0x2000/0x2001/0x2100+: do NOT exist on this device
-REG_CONTROL_CMD   = 0x0700  # P07-00: run/stop command
-REG_FREQ_SETPOINT = 0x0703  # P07-03: live frequency command (confirmed)
-REG_STATUS_WORD   = 0x3000
+# --- Register addresses (L510 manual, Appendix 3) ---
+# 0x2501: Operation Signal (bit0=Run, bit1=Reverse, bit3=Reset)
+# 0x2502: Frequency Command (0.01 Hz)
+# 0x2520–0x2532: Monitoring block (status, fault, freq, voltage, current, temp)
+REG_CONTROL_CMD   = 0x2501  # Operation Signal
+REG_FREQ_SETPOINT = 0x2502  # Frequency Command (0.01 Hz)
+REG_STATUS_WORD   = 0x2520  # Monitoring: status bits
+REG_MONITOR_START = 0x2520
+REG_MONITOR_COUNT = 19      # 0x2520–0x2532
 
-CMD_STOP        = 0x0000
-CMD_RUN_FORWARD = 0x0001
-CMD_RUN_REVERSE = 0x0002
-CMD_RESET_FAULT = 0x0000  # stop is the safest reset action on this device
+CMD_STOP        = 0x0000  # all bits clear
+CMD_RUN_FORWARD = 0x0001  # bit0=Run, bit1=0 (forward)
+CMD_RUN_REVERSE = 0x0003  # bit0=Run, bit1=1 (reverse)
+CMD_RESET_FAULT = 0x0008  # bit3=Reset (follow with CMD_STOP)
+
+# Status word bits (0x2520)
+STATUS_RUNNING = 0x0001  # bit 0
+STATUS_REVERSE = 0x0002  # bit 1
+STATUS_READY   = 0x0004  # bit 2
+STATUS_FAULT   = 0x0008  # bit 3
+STATUS_ALARM   = 0x0010  # bit 4 (data error)
 
 FAULT_CODES = {
     0:  "Kein Fehler",
-    1:  "OC-A  Überstrom Beschleunigung",
-    2:  "OC-C  Überstrom Konstantbetrieb",
-    3:  "OC-d  Überstrom Verzögerung",
-    4:  "OC-S  Überstrom Start",
-    5:  "OV-C  Überspannung",
-    6:  "OH    Übertemperatur",
-    7:  "OL1   Motor Überlast",
-    8:  "OL2   Umrichter Überlast",
-    9:  "OC    Überstrom Stopp",
-    10: "CL    Strombegrenzung",
-    11: "PF    Phase fehlt",
-    12: "LV-C  Unterspannung",
-    13: "OVSP  Überdrehzahl",
-    14: "OH4   Motor Überhitzung",
+    1:  "OH    Übertemperatur",
+    2:  "OC    Überstrom (gestoppt)",
+    3:  "LV    Unterspannung",
+    4:  "OV    Überspannung",
+    6:  "bb    Externer Basisblock",
+    7:  "CtEr  CPU-Fehler",
+    8:  "PdEr  PID-Rückmeldung verloren",
+    9:  "EPr   EEPROM-Fehler",
+    11: "OL3   Drehmomenten-Überlast",
+    12: "OL2   Umrichter Überlast",
+    13: "OL1   Motor Überlast",
+    14: "EFO   Externer Kommunikationsfehler",
+    15: "E.S.  Externer Stopp",
+    16: "LOC   Parameter gesperrt",
+    18: "OC-C  Überstrom Konstantbetrieb",
+    19: "OC-A  Überstrom Beschleunigung",
+    20: "OC-d  Überstrom Verzögerung",
+    21: "OC-S  Überstrom Start",
+    23: "LV-C  Unterspannung im Betrieb",
+    24: "OV-C  Überspannung Verzögerung",
+    25: "OH-C  Übertemperatur im Betrieb",
+    33: "Err6  Kommunikationsfehler",
+    34: "Err7  Parameterkonflikt",
+    40: "OVSP  Motor Überdrehzahl",
+    41: "PF    Eingangsphase fehlt",
+    44: "OH4   Motor Übertemperatur",
+    46: "CL    Strombegrenzung",
 }
 
 
@@ -78,10 +96,10 @@ async def connect(port: str, baud: int) -> AsyncModbusSerialClient:
 
 
 async def read_status(client: AsyncModbusSerialClient, slave: int) -> None:
-    """Read monitoring registers 0x2100–0x210C (Delta VFD-EL layout)."""
+    """Read monitoring registers 0x2520–0x2532 (L510 Appendix 3 layout)."""
     try:
         result = await client.read_holding_registers(
-            address=0x2100, count=13, slave=slave,
+            address=REG_MONITOR_START, count=REG_MONITOR_COUNT, slave=slave,
         )
     except ModbusException as exc:
         print(f"Modbus-Fehler: {exc}")
@@ -96,33 +114,31 @@ async def read_status(client: AsyncModbusSerialClient, slave: int) -> None:
         return
 
     r = result.registers
-    # Delta VFD-EL layout:
-    # [0]=0x2100 fault, [1]=0x2101 status, [2]=0x2102 set freq,
-    # [3]=0x2103 out freq, [4]=0x2104 current, [5-7]=reserved/PID,
-    # [8]=0x2108 DC bus V, [9]=0x2109 out V, [10]=0x210A temp,
-    # [11]=0x210B torque, [12]=0x210C speed
-    fault = r[0]
-    sw = r[1]
+    # L510 Appendix 3 monitoring layout (offsets from 0x2520):
+    # [0]=status, [1]=fault, [2]=DIO, [3]=setfreq, [4]=outfreq,
+    # [5]=outvolt, [6]=dcvolt, [7]=outcurrent, [9]=outpower,
+    # [17]=heatsinktemp, [18]=current%
+    sw    = r[0]
+    fault = r[1]
     print("─" * 52)
-    print(f"  Fehlercode (0x2100):  {fault} – {FAULT_CODES.get(fault, 'unbekannt')}")
-    print(f"  Status-Word (0x2101): 0x{sw:04X}")
-    print(f"  Bereit:               {'Ja' if sw & STATUS_READY else 'Nein'}")
+    print(f"  Status-Word (0x2520): 0x{sw:04X}")
     print(f"  Läuft:                {'Ja' if sw & STATUS_RUNNING else 'Nein'}")
     print(f"  Richtung:             {'Rückwärts' if sw & STATUS_REVERSE else 'Vorwärts'}")
+    print(f"  Bereit:               {'Ja' if sw & STATUS_READY else 'Nein'}")
     print(f"  Fehler aktiv:         {'Ja' if sw & STATUS_FAULT else 'Nein'}")
     print(f"  Warnung:              {'Ja' if sw & STATUS_ALARM else 'Nein'}")
-    print(f"  Sollfrequenz:         {r[2] / 100.0:.2f} Hz   (0x2102)")
-    print(f"  Ausgangsfrequenz:     {r[3] / 100.0:.2f} Hz   (0x2103)")
-    print(f"  Ausgangsstrom:        {r[4] / 100.0:.2f} A    (0x2104)")
-    print(f"  Zwischenkreis-U:      {r[8] / 10.0:.1f} V     (0x2108)")
-    print(f"  Ausgangsspannung:     {r[9] / 10.0:.1f} V     (0x2109)")
-    print(f"  Kühlkörpertemp.:      {r[10]} °C              (0x210A)")
-    print(f"  Drehmoment:           {r[11]} %               (0x210B)")
-    print(f"  Motordrehzahl:        {r[12]} RPM             (0x210C)")
+    print(f"  Fehlercode (0x2521):  {fault} – {FAULT_CODES.get(fault, 'unbekannt')}")
+    print(f"  Sollfrequenz:         {r[3] / 100.0:.2f} Hz   (0x2523)")
+    print(f"  Ausgangsfrequenz:     {r[4] / 100.0:.2f} Hz   (0x2524)")
+    print(f"  Ausgangsspannung:     {r[5] / 10.0:.1f} V     (0x2525)")
+    print(f"  Zwischenkreis-U:      {r[6]:.0f} V            (0x2526)")
+    print(f"  Ausgangsstrom:        {r[7] / 10.0:.1f} A     (0x2527)")
+    print(f"  Kühlkörpertemp.:      {r[17] / 10.0:.1f} °C  (0x2531)")
+    print(f"  Strom-Verhältnis:     {r[18]} %               (0x2532)")
     print("─" * 52)
-    print(f"\n  Rohdaten 0x2100–0x210C:")
+    print(f"\n  Rohdaten 0x2520–0x2532:")
     for i, v in enumerate(r):
-        print(f"    0x{0x2100 + i:04X} = {v:5d} (0x{v:04X})")
+        print(f"    0x{REG_MONITOR_START + i:04X} = {v:6d}  (0x{v:04X})")
     print("─" * 52)
 
 
@@ -162,28 +178,27 @@ async def write_cmd(client: AsyncModbusSerialClient, slave: int, cmd: int, label
         if result.isError():
             print(f"Schreibfehler ({label}): {result}")
         else:
-            print(f"OK: {label} (0x{cmd:04X}) gesendet an Register 0x2000")
+            print(f"OK: {label} (0x{cmd:04X}) gesendet an Register 0x{REG_CONTROL_CMD:04X}")
     except ModbusException as exc:
         print(f"Modbus-Fehler ({label}): {exc}")
 
 
 async def set_frequency(client: AsyncModbusSerialClient, slave: int, freq_hz: float) -> None:
-    """Write frequency to P07-01 and send run-forward command to P07-00."""
+    """Write frequency to 0x2502 and send run-forward command to 0x2501."""
     value = int(round(freq_hz * 100))
     try:
         result = await client.write_register(address=REG_FREQ_SETPOINT, value=value, slave=slave)
         if result.isError():
             print(f"Schreibfehler Frequenz (0x{REG_FREQ_SETPOINT:04X}): {result}")
             return
-        print(f"OK: Frequenz {freq_hz:.2f} Hz gesetzt (P07-01 = {value})")
-        # Also send run command so motor starts immediately
+        print(f"OK: Frequenz {freq_hz:.2f} Hz gesetzt (0x2502 = {value})")
         result2 = await client.write_register(
             address=REG_CONTROL_CMD, value=CMD_RUN_FORWARD, slave=slave
         )
         if result2.isError():
             print(f"Schreibfehler Run-Befehl (0x{REG_CONTROL_CMD:04X}): {result2}")
         else:
-            print(f"OK: Run-Befehl gesendet (P07-00 = {CMD_RUN_FORWARD})")
+            print(f"OK: Run-Befehl gesendet (0x2501 = {CMD_RUN_FORWARD})")
     except ModbusException as exc:
         print(f"Modbus-Fehler: {exc}")
 
@@ -234,9 +249,9 @@ async def read_param(client: AsyncModbusSerialClient, slave: int, addr_hex: str)
 async def run_heartbeat(
     client: AsyncModbusSerialClient, slave: int, freq_hz: float, interval: float = 1.0,
 ) -> None:
-    """Keep connection open and refresh P07-03 (freq) + P07-00 (run) every interval seconds.
+    """Keep connection open and refresh 0x2502 (freq) + 0x2501 (run) every interval seconds.
 
-    Use this when P09-06=0 causes the VFD to reset frequency on disconnect.
+    Use this when P09-06>0 causes the VFD to stop on communication timeout.
     Press Ctrl+C to stop (sends stop command before exiting).
     """
     freq_value = int(round(freq_hz * 100))
@@ -244,14 +259,12 @@ async def run_heartbeat(
     try:
         iteration = 0
         while True:
-            # Write frequency to P07-03
             r1 = await client.write_register(address=REG_FREQ_SETPOINT, value=freq_value, slave=slave)
-            # Write run-forward to P07-00
             r2 = await client.write_register(address=REG_CONTROL_CMD, value=CMD_RUN_FORWARD, slave=slave)
             ok = not r1.isError() and not r2.isError()
             if iteration % 5 == 0:
                 status = "✓" if ok else "✗"
-                print(f"  [{iteration:4d}] {status} P07-03={freq_value} P07-00={CMD_RUN_FORWARD}")
+                print(f"  [{iteration:4d}] {status} 0x2502={freq_value} 0x2501={CMD_RUN_FORWARD}")
             iteration += 1
             await asyncio.sleep(interval)
     except KeyboardInterrupt:
@@ -313,7 +326,8 @@ async def main() -> None:
         elif action == "emergency":
             await write_cmd(client, args.slave, CMD_STOP, "Not-Stopp")
         elif action == "reset":
-            await write_cmd(client, args.slave, CMD_STOP, "Fehler zurücksetzen (Stopp)")
+            await write_cmd(client, args.slave, CMD_RESET_FAULT, "Fehler zurücksetzen (Reset)")
+            await write_cmd(client, args.slave, CMD_STOP, "Stopp nach Reset")
         elif action.startswith("freq="):
             freq = float(action.split("=", 1)[1])
             await set_frequency(client, args.slave, freq)

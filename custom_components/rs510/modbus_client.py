@@ -11,6 +11,7 @@ from pymodbus.client import AsyncModbusSerialClient
 from pymodbus.exceptions import ModbusException
 
 from .const import (
+    CMD_RESET_FAULT,
     CMD_RUN_FORWARD,
     CMD_RUN_REVERSE,
     CMD_STOP,
@@ -120,20 +121,20 @@ class RS510ModbusClient:
     # ------------------------------------------------------------------
 
     async def async_read_status(self) -> Optional[RS510Status]:
-        """Read monitoring registers from 0x3000 in a single request.
+        """Read monitoring registers 0x2520–0x2532 in a single FC03 request.
 
-        NOTE: On RS510-2P7-SH1 the Delta VFD-EL range 0x2100+ does not respond.
-        0x3000 is confirmed present (probe value=0). Tentative INVT-style layout:
-          0x3000 = status/control word
-          0x3001 = frequency setpoint (0.01 Hz)
-          0x3002 = output frequency   (0.01 Hz)
-          0x3003 = output current     (0.01 A)
-          0x3004 = DC bus voltage     (0.1 V)
-          0x3005 = output voltage     (0.1 V)
-          0x3006 = heatsink temp      (1 °C)
-          0x3007 = torque ratio       (%)
-          0x3008 = motor speed        (RPM)
-        Register layout is unverified – run rs510_scan.py --probe to confirm.
+        L510 manual Appendix 3, Section 4.2 register layout:
+          [0]  0x2520 = status word
+          [1]  0x2521 = fault code
+          [2]  0x2522 = DI/DO status
+          [3]  0x2523 = frequency command echo (0.01 Hz)
+          [4]  0x2524 = output frequency (0.01 Hz)
+          [5]  0x2525 = output voltage (0.1 V)
+          [6]  0x2526 = DC bus voltage (1 V)
+          [7]  0x2527 = output current (0.1 A)
+          [9]  0x2529 = output power (0.1 kW)
+          [17] 0x2531 = heatsink temperature (0.1 °C)
+          [18] 0x2532 = current ratio (%)
         """
         async with self._lock:
             if self._client is None:
@@ -150,22 +151,22 @@ class RS510ModbusClient:
 
                 regs = result.registers
                 self._consecutive_failures = 0
-                # Tentative index offsets from REG_MONITOR_START (0x3000)
-                status_word = regs[0]             # 0x3000
+                status_word = regs[0]   # 0x2520
+                fault_code  = regs[1]   # 0x2521
                 return RS510Status(
                     is_running=bool(status_word & STATUS_BIT_RUNNING),
                     is_reverse=bool(status_word & STATUS_BIT_REVERSE),
                     is_ready=bool(status_word & STATUS_BIT_READY),
                     has_fault=bool(status_word & STATUS_BIT_FAULT),
                     has_alarm=bool(status_word & STATUS_BIT_ALARM),
-                    set_frequency_hz=regs[1] / 100.0,    # 0x3001
-                    output_frequency_hz=regs[2] / 100.0, # 0x3002
-                    output_current_a=regs[3] / 100.0,    # 0x3003
-                    dc_voltage_v=regs[4] / 10.0,         # 0x3004
-                    output_voltage_v=regs[5] / 10.0,     # 0x3005
-                    heatsink_temp_c=regs[6],              # 0x3006
-                    motor_speed_rpm=regs[8],              # 0x3008
-                    fault_code=0,
+                    set_frequency_hz=regs[3] / 100.0,    # 0x2523
+                    output_frequency_hz=regs[4] / 100.0, # 0x2524
+                    output_voltage_v=regs[5] / 10.0,     # 0x2525
+                    dc_voltage_v=float(regs[6]),          # 0x2526 (1 V resolution)
+                    output_current_a=regs[7] / 10.0,     # 0x2527
+                    heatsink_temp_c=regs[17] // 10,      # 0x2531 (0.1 °C → °C)
+                    motor_speed_rpm=0,
+                    fault_code=fault_code,
                     status_word=status_word,
                 )
             except ModbusException as exc:
@@ -195,7 +196,10 @@ class RS510ModbusClient:
         return await self.async_stop()
 
     async def async_reset_fault(self) -> bool:
-        return await self.async_stop()
+        ok = await self._write_register(REG_CONTROL_CMD, CMD_RESET_FAULT)
+        if ok:
+            ok = await self._write_register(REG_CONTROL_CMD, CMD_STOP)
+        return ok
 
     async def async_set_frequency(self, frequency_hz: float) -> bool:
         """Set output frequency (Hz). Also sends run-forward command so motor starts."""

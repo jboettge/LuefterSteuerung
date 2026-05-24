@@ -1,8 +1,8 @@
 """Constants for the RSPro RS510 Modbus RTU Home Assistant integration.
 
-Register addresses and protocol details based on the RS510 user manual
-(A700000006570784) and Modbus register map (A700000010414499).
-The RS510 shares its platform with the Delta VFD-EL series.
+Register addresses and protocol details based on the L510s manual.
+The RS510-2P7-SH1 is an OEM of the TECO L510 (single-phase 230V, 2.7kW).
+Communication registers are in Appendix 3 of the L510 manual.
 """
 
 DOMAIN = "rs510"
@@ -68,73 +68,51 @@ PARAM_COMM_TIMEOUT     = 0x0906  # P09-06  Timeout (0.1 s, 0.0-25.5)
 PARAM_TIMEOUT_ACTION   = 0x0907  # P09-07  0=Decel stop, 1=Coast, 2=Decel2, 3=Continue
 
 # ---------------------------------------------------------------------------
-# Dedicated Modbus control & monitoring registers
-#
-# Confirmed on RS510-2P7-SH1 (found via systematic probe + power-cycle test):
-#   0x0700 (P07-00): Run/Stop command register. FC06 read/write.
-#                    0 = Stop, 1 = Forward run, 2 = Reverse run (unconfirmed)
-#   0x0701 (P07-01): Live frequency command register (0.01 Hz). FC06 read/write.
-#                    Values must be in range [P00-13 min .. P00-12 max] or 0.
-#                    After power cycle the VFD starts with these stored values.
-#   0x0702 (P07-02): Read-back run status (1 = running forward)
-#   0x3000+ : Read-only status block. Individual register meaning TBD.
-#   0x2000/0x2001/0x2100+ : Do NOT exist on this device (exception 131).
-#   0x1000  : Accepts FC06 write=0 only (meaning unclear; likely watchdog/stop).
+# Dedicated Modbus communication registers (L510 manual, Appendix 3)
 #
 # Prerequisite: set P00-02=2 (run from communication) and
 #               P00-05=5 (frequency from communication) via keypad first.
 # ---------------------------------------------------------------------------
 
-# --- Run/Stop command register (FC06 read/write) ---
-REG_CONTROL_CMD      = 0x0700  # P07-00: 0=stop, 1=forward, 2=reverse
+# --- Run/Stop command register (0x2501, FC06 write) ---
+REG_CONTROL_CMD      = 0x2501  # Operation Signal
 
-# --- Frequency command register (FC06 read/write, 0.01 Hz units) ---
-# CONFIRMED: writing 5000 to P07-03 caused OL1 overload — motor received power.
-# P07-01 is a status echo only. P07-03 is the live frequency command register.
-REG_FREQ_SETPOINT    = 0x0703  # P07-03: live frequency (0.01 Hz); e.g. 1500 = 15.00 Hz
+# --- Frequency command register (0x2502, FC06 write, 0.01 Hz units) ---
+REG_FREQ_SETPOINT    = 0x2502  # Frequency Command; e.g. 1500 = 15.00 Hz
 
-# Run/Stop command values for REG_CONTROL_CMD (P07-00):
-CMD_STOP           = 0x0000  # stop motor
-CMD_RUN_FORWARD    = 0x0001  # run forward
-CMD_RUN_REVERSE    = 0x0002  # run reverse (unconfirmed; reverse direction)
-#   Bit 4:  FWD       1=Forward direction
-#   Bit 5:  REV       1=Reverse direction
-#   Bit 12: ESTOP     1=Emergency stop
-#   Bit 13: RESET     1=Fault reset
-CMD_STOP           = 0x0001  # Bit 0
-CMD_RUN_FORWARD    = 0x0012  # Bit 1 (RUN) + Bit 4 (FWD)
-CMD_RUN_REVERSE    = 0x0022  # Bit 1 (RUN) + Bit 5 (REV)
-CMD_JOG_RUN        = 0x0003  # Bit 0 + Bit 1 (JOG)
-CMD_RESET_FAULT    = 0x2000  # Bit 13
-CMD_EMERGENCY_STOP = 0x1000  # Bit 12
+# Run/Stop command values for REG_CONTROL_CMD (0x2501):
+#   bit 0: Run (1=run, 0=stop)
+#   bit 1: Direction (0=forward, 1=reverse)
+#   bit 3: Fault Reset
+CMD_STOP           = 0x0000  # stop
+CMD_RUN_FORWARD    = 0x0001  # bit0=Run, bit1=0 (forward)
+CMD_RUN_REVERSE    = 0x0003  # bit0=Run, bit1=1 (reverse)
+CMD_RESET_FAULT    = 0x0008  # bit3=Reset (write then write CMD_STOP)
+CMD_EMERGENCY_STOP = 0x0000  # same as stop for L510
 
-# --- Monitoring registers (read, FC=03, confirmed responding) ---
-# 0x3000–0x3020 all respond. 0x3001/0x3003/… hold constant values (31,32,33…)
-# that appear to be firmware/model identification, not live monitoring data.
-# Live monitoring layout is TBD — read 0x3000 block while running to decode.
-# Known: 0x301D=1690, 0x301F=1734 (plausible as voltages ×10: 169 V / 173 V).
-# 0x300F=1 and 0x3011=1 mirror P09-00 (slave addr) and a comm setting.
-REG_STATUS_WORD      = 0x3000  # 0 when stopped; expected to change when running
-REG_SET_FREQ         = 0x3001  # constant 31 when stopped – possibly model code
-REG_OUT_FREQ         = 0x3002  # 0 when stopped – candidate output frequency
-REG_OUT_CURRENT      = 0x3004  # 0 when stopped – candidate output current
-REG_DC_VOLTAGE       = 0x301D  # 1690 idle – candidate DC bus voltage (×10 → 169 V)
-REG_OUT_VOLTAGE      = 0x301F  # 1734 idle – candidate output voltage (×10 → 173 V)
-REG_HEATSINK_TEMP    = 0x3006  # unverified
-REG_TORQUE           = 0x3007  # unverified
-REG_MOTOR_SPEED      = 0x3008  # unverified
-REG_FAULT_CODE       = 0x300B  # unverified (0 when stopped = no fault, plausible)
-# Read 0x3000–0x300C in one request for basic status
-REG_MONITOR_START    = 0x3000
-REG_MONITOR_COUNT    = 13
+# --- Monitoring registers (0x2520–0x2532, FC03 read) ---
+REG_MONITOR_START    = 0x2520
+REG_MONITOR_COUNT    = 19     # 0x2520 through 0x2532 inclusive
+# Individual monitoring registers (offset from 0x2520):
+REG_STATUS_WORD      = 0x2520  # [0]  status bits
+REG_FAULT_CODE       = 0x2521  # [1]  fault code (0 = no fault)
+REG_DIO_STATUS       = 0x2522  # [2]  DI/DO status
+REG_SET_FREQ         = 0x2523  # [3]  frequency command echo (0.01 Hz)
+REG_OUT_FREQ         = 0x2524  # [4]  output frequency (0.01 Hz)
+REG_OUT_VOLTAGE      = 0x2525  # [5]  output voltage (0.1 V)
+REG_DC_VOLTAGE       = 0x2526  # [6]  DC bus voltage (1 V)
+REG_OUT_CURRENT      = 0x2527  # [7]  output current (0.1 A)
+REG_OUT_POWER        = 0x2529  # [9]  output power (0.1 kW)
+REG_HEATSINK_TEMP    = 0x2531  # [17] heatsink temperature (0.1 °C)
+REG_CURRENT_PCT      = 0x2532  # [18] current ratio (%)
 
-# Status word bit definitions (read from REG_STATUS_WORD = 0x2101):
-# Exact bit definitions may vary — verify empirically with rs510_test.py.
-STATUS_BIT_READY   = 0x0001
-STATUS_BIT_RUNNING = 0x0002
-STATUS_BIT_REVERSE = 0x0004
-STATUS_BIT_FAULT   = 0x0008
-STATUS_BIT_ALARM   = 0x0010
+# Status word bit definitions (register 0x2520):
+STATUS_BIT_RUNNING   = 0x0001  # bit 0: inverter running
+STATUS_BIT_REVERSE   = 0x0002  # bit 1: reverse direction
+STATUS_BIT_READY     = 0x0004  # bit 2: ready
+STATUS_BIT_FAULT     = 0x0008  # bit 3: fault active
+STATUS_BIT_DATA_ERR  = 0x0010  # bit 4: communication data error
+STATUS_BIT_ALARM     = 0x0010  # alias for DATA_ERR (used as alarm indicator)
 
 # ---------------------------------------------------------------------------
 # Preset speed modes
@@ -150,26 +128,37 @@ PRESET_FREQUENCY: dict[str, float] = {
 }
 
 # ---------------------------------------------------------------------------
-# RS510 Fault codes (from manual section 5.1)
+# RS510/L510 Fault codes (register 0x2521H, from L510 manual section 5.1)
 # ---------------------------------------------------------------------------
 FAULT_CODES: dict[int, str] = {
     0:  "Kein Fehler",
-    1:  "OC-A  Überstrom bei Beschleunigung",
-    2:  "OC-C  Überstrom bei Konstantbetrieb",
-    3:  "OC-d  Überstrom bei Verzögerung",
-    4:  "OC-S  Überstrom bei Start",
-    5:  "OV-C  Überspannung Betrieb/Verzögerung",
-    6:  "OH    Kühlkörper Übertemperatur",
-    7:  "OL1   Motor Überlast",
-    8:  "OL2   Umrichter Überlast",
-    9:  "OC    Überstrom bei Stopp",
-    10: "CL    Umrichter Strombegrenzung",
-    11: "PF    Eingangsphase fehlt",
-    12: "LV-C  Unterspannung Betrieb",
-    13: "OVSP  Motor Überdrehzahl",
-    14: "OH4   Motor Übertemperatur",
-    15: "CtEr  Stromerfassungsfehler",
-    16: "HPErr Hardwareschutz Fehler",
+    1:  "OH    Übertemperatur",
+    2:  "OC    Überstrom (gestoppt)",
+    3:  "LV    Unterspannung",
+    4:  "OV    Überspannung",
+    6:  "bb    Externer Basisblock",
+    7:  "CtEr  CPU-Fehler",
+    8:  "PdEr  PID-Rückmeldung verloren",
+    9:  "EPr   EEPROM-Fehler",
+    11: "OL3   Drehmomenten-Überlast",
+    12: "OL2   Umrichter Überlast",
+    13: "OL1   Motor Überlast",
+    14: "EFO   Externer Kommunikationsfehler",
+    15: "E.S.  Externer Stopp",
+    16: "LOC   Parameter gesperrt",
+    18: "OC-C  Überstrom Konstantbetrieb",
+    19: "OC-A  Überstrom Beschleunigung",
+    20: "OC-d  Überstrom Verzögerung",
+    21: "OC-S  Überstrom Start",
+    23: "LV-C  Unterspannung im Betrieb",
+    24: "OV-C  Überspannung Verzögerung",
+    25: "OH-C  Übertemperatur im Betrieb",
+    33: "Err6  Kommunikationsfehler",
+    34: "Err7  Parameterkonflikt",
+    40: "OVSP  Motor Überdrehzahl",
+    41: "PF    Eingangsphase fehlt",
+    44: "OH4   Motor Übertemperatur",
+    46: "CL    Strombegrenzung",
 }
 
 # ---------------------------------------------------------------------------
