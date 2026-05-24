@@ -30,15 +30,19 @@ from pymodbus.client import AsyncModbusSerialClient
 from pymodbus.exceptions import ModbusException
 
 # --- Register addresses (confirmed on RS510-2P7-SH1) ---
-# 0x1000: live frequency/run command (FC 06 read+write confirmed).
-#         Write 0 = stop. Write freq*100 (>= P00-13 min) = run at that freq.
-# 0x3000+: read-only status block. 0x2000/0x2001/0x2100+ do NOT exist.
-REG_CONTROL_CMD   = 0x1000  # write 0 to stop
-REG_FREQ_SETPOINT = 0x1000  # write freq*100 to run (same register)
-REG_STATUS_WORD   = 0x3000  # read-only; 0 when stopped
+# P07-00 (0x0700): Run/Stop command  — 0=stop, 1=forward, 2=reverse
+# P07-01 (0x0701): Frequency setpoint (0.01 Hz) — e.g. 1500 = 15.00 Hz
+# P07-02 (0x0702): Run status readback (1=running forward)
+# 0x3000+: read-only status block
+# 0x2000/0x2001/0x2100+: do NOT exist on this device
+REG_CONTROL_CMD   = 0x0700  # P07-00
+REG_FREQ_SETPOINT = 0x0701  # P07-01
+REG_STATUS_WORD   = 0x3000
 
-# CMD_RESET_FAULT may still be needed; other CMD_* are not used on RS510-2P7-SH1
-CMD_RESET_FAULT   = 0x2000  # kept for fault-reset attempt via write_cmd
+CMD_STOP        = 0x0000
+CMD_RUN_FORWARD = 0x0001
+CMD_RUN_REVERSE = 0x0002
+CMD_RESET_FAULT = 0x0000  # stop is the safest reset action on this device
 
 FAULT_CODES = {
     0:  "Kein Fehler",
@@ -162,17 +166,22 @@ async def write_cmd(client: AsyncModbusSerialClient, slave: int, cmd: int, label
 
 
 async def set_frequency(client: AsyncModbusSerialClient, slave: int, freq_hz: float) -> None:
-    """Write frequency to 0x1000 (run at freq if > 0, stop if 0)."""
+    """Write frequency to P07-01 and send run-forward command to P07-00."""
     value = int(round(freq_hz * 100))
     try:
         result = await client.write_register(address=REG_FREQ_SETPOINT, value=value, slave=slave)
         if result.isError():
-            print(f"Schreibfehler 0x{REG_FREQ_SETPOINT:04X}: {result}")
+            print(f"Schreibfehler Frequenz (0x{REG_FREQ_SETPOINT:04X}): {result}")
+            return
+        print(f"OK: Frequenz {freq_hz:.2f} Hz gesetzt (P07-01 = {value})")
+        # Also send run command so motor starts immediately
+        result2 = await client.write_register(
+            address=REG_CONTROL_CMD, value=CMD_RUN_FORWARD, slave=slave
+        )
+        if result2.isError():
+            print(f"Schreibfehler Run-Befehl (0x{REG_CONTROL_CMD:04X}): {result2}")
         else:
-            if value == 0:
-                print(f"OK: Stopp-Befehl via 0x{REG_FREQ_SETPOINT:04X} (Frequenz = 0)")
-            else:
-                print(f"OK: Frequenz {freq_hz:.2f} Hz via 0x{REG_FREQ_SETPOINT:04X} gesetzt (Wert: {value})")
+            print(f"OK: Run-Befehl gesendet (P07-00 = {CMD_RUN_FORWARD})")
     except ModbusException as exc:
         print(f"Modbus-Fehler: {exc}")
 
@@ -265,17 +274,15 @@ async def main() -> None:
         if action == "status":
             await read_status(client, args.slave)
         elif action == "run":
-            # Run forward at last set frequency (default 15 Hz = 1500)
-            await set_frequency(client, args.slave, 15.0)
+            await write_cmd(client, args.slave, CMD_RUN_FORWARD, "Vorwärts starten")
         elif action == "run_rev":
-            print("Rückwärts: P00-01=1 setzen, dann 'run' verwenden.")
-            print("  python rs510_test.py --port ... write=0001,1")
+            await write_cmd(client, args.slave, CMD_RUN_REVERSE, "Rückwärts starten")
         elif action == "stop":
-            await set_frequency(client, args.slave, 0.0)
+            await write_cmd(client, args.slave, CMD_STOP, "Stopp")
         elif action == "emergency":
-            await set_frequency(client, args.slave, 0.0)
+            await write_cmd(client, args.slave, CMD_STOP, "Not-Stopp")
         elif action == "reset":
-            await write_cmd(client, args.slave, CMD_RESET_FAULT, "Fehler zurücksetzen")
+            await write_cmd(client, args.slave, CMD_STOP, "Fehler zurücksetzen (Stopp)")
         elif action.startswith("freq="):
             freq = float(action.split("=", 1)[1])
             await set_frequency(client, args.slave, freq)

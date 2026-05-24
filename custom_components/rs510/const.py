@@ -70,30 +70,31 @@ PARAM_TIMEOUT_ACTION   = 0x0907  # P09-07  0=Decel stop, 1=Coast, 2=Decel2, 3=Co
 # ---------------------------------------------------------------------------
 # Dedicated Modbus control & monitoring registers
 #
-# Probe results on RS510-2P7-SH1:
-#   0x2000/0x2001/0x2100+ → all return exception 131 (ILLEGAL DATA ADDRESS)
-#   0x3000–0x3020 → respond to reads (FC 03) but reject writes (ILLEGAL FUNCTION)
-#   0x1000 → responds to reads (value=0) AND accepts FC 06 writes
-#             Value 0 accepted (stop). Values below P00-13 min-freq rejected.
-#             Hypothesis: 0x1000 = live frequency command register (0.01 Hz).
-#             Writing freq > 0 starts motor; writing 0 stops it.
-#             P00-02=2 (comm run) + P00-05=5 (comm freq) must be set.
+# Confirmed on RS510-2P7-SH1 (found via systematic probe + power-cycle test):
+#   0x0700 (P07-00): Run/Stop command register. FC06 read/write.
+#                    0 = Stop, 1 = Forward run, 2 = Reverse run (unconfirmed)
+#   0x0701 (P07-01): Live frequency command register (0.01 Hz). FC06 read/write.
+#                    Values must be in range [P00-13 min .. P00-12 max] or 0.
+#                    After power cycle the VFD starts with these stored values.
+#   0x0702 (P07-02): Read-back run status (1 = running forward)
+#   0x3000+ : Read-only status block. Individual register meaning TBD.
+#   0x2000/0x2001/0x2100+ : Do NOT exist on this device (exception 131).
+#   0x1000  : Accepts FC06 write=0 only (meaning unclear; likely watchdog/stop).
 #
 # Prerequisite: set P00-02=2 (run from communication) and
 #               P00-05=5 (frequency from communication) via keypad first.
 # ---------------------------------------------------------------------------
 
-# --- Frequency/run command register (read/write, FC=06) ---
-# Writing 0 = stop motor.
-# Writing freq×100 (>= P00-13 minimum, <= P00-12 maximum) = run at that freq.
-# Values below P00-13 (except 0) are rejected by firmware with exception code 1.
-# 0x2000 does NOT exist on RS510-2P7-SH1.
-REG_CONTROL_CMD      = 0x1000  # alias: write 0 to stop
-REG_FREQ_SETPOINT    = 0x1000  # live frequency command (0.01 Hz units)
+# --- Run/Stop command register (FC06 read/write) ---
+REG_CONTROL_CMD      = 0x0700  # P07-00: 0=stop, 1=forward, 2=reverse
 
-# NOTE: The RS510-2P7-SH1 uses a unified frequency+run register at 0x1000.
-# There are no separate bit-field control commands as in the Delta VFD-EL.
-# The CMD_* constants below are kept for reference but NOT used on this device.
+# --- Frequency command register (FC06 read/write, 0.01 Hz units) ---
+REG_FREQ_SETPOINT    = 0x0701  # P07-01: e.g. 1500 = 15.00 Hz
+
+# Run/Stop command values for REG_CONTROL_CMD (P07-00):
+CMD_STOP           = 0x0000  # stop motor
+CMD_RUN_FORWARD    = 0x0001  # run forward
+CMD_RUN_REVERSE    = 0x0002  # run reverse (unconfirmed; reverse direction)
 #   Bit 4:  FWD       1=Forward direction
 #   Bit 5:  REV       1=Reverse direction
 #   Bit 12: ESTOP     1=Emergency stop
