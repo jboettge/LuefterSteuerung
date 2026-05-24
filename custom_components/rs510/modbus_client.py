@@ -18,10 +18,9 @@ from .const import (
     CMD_STOP,
     PARAM_COMM_FREQ_CMD,
     REG_CONTROL_CMD,
-    REG_FAULT_CODE,
     REG_FREQ_SETPOINT,
     REG_MONITOR_COUNT,
-    REG_STATUS_WORD,
+    REG_MONITOR_START,
     STATUS_BIT_ALARM,
     STATUS_BIT_FAULT,
     STATUS_BIT_READY,
@@ -124,14 +123,23 @@ class RS510ModbusClient:
     # ------------------------------------------------------------------
 
     async def async_read_status(self) -> Optional[RS510Status]:
-        """Read monitoring registers 0x2100–0x2108 in a single request."""
+        """Read monitoring registers 0x2100–0x210C in a single request.
+
+        Delta VFD-EL register layout:
+          0x2100 = fault code     0x2101 = status word
+          0x2102 = set freq       0x2103 = output freq
+          0x2104 = output current 0x2105-07 = reserved/PID
+          0x2108 = DC bus voltage 0x2109 = output voltage
+          0x210A = heatsink temp  0x210B = torque ratio
+          0x210C = motor speed
+        """
         async with self._lock:
             if self._client is None:
                 return None
             try:
                 result = await self._client.read_holding_registers(
-                    address=REG_STATUS_WORD,
-                    count=REG_MONITOR_COUNT + 1,  # +1 for fault code at 0x2108
+                    address=REG_MONITOR_START,
+                    count=REG_MONITOR_COUNT,
                     slave=self._slave,
                 )
                 if result.isError():
@@ -140,21 +148,23 @@ class RS510ModbusClient:
 
                 regs = result.registers
                 self._consecutive_failures = 0
-                status_word = regs[0]
+                # Index offsets from REG_MONITOR_START (0x2100)
+                fault_code = regs[0]              # 0x2100
+                status_word = regs[1]             # 0x2101
                 return RS510Status(
                     is_running=bool(status_word & STATUS_BIT_RUNNING),
                     is_reverse=bool(status_word & STATUS_BIT_REVERSE),
                     is_ready=bool(status_word & STATUS_BIT_READY),
                     has_fault=bool(status_word & STATUS_BIT_FAULT),
                     has_alarm=bool(status_word & STATUS_BIT_ALARM),
-                    set_frequency_hz=regs[1] / 100.0,
-                    output_frequency_hz=regs[2] / 100.0,
-                    output_current_a=regs[3] / 100.0,
-                    dc_voltage_v=regs[4] / 10.0,
-                    output_voltage_v=regs[5] / 10.0,
-                    motor_speed_rpm=regs[6],
-                    heatsink_temp_c=regs[7],
-                    fault_code=regs[8] if len(regs) > 8 else 0,
+                    set_frequency_hz=regs[2] / 100.0,   # 0x2102
+                    output_frequency_hz=regs[3] / 100.0, # 0x2103
+                    output_current_a=regs[4] / 100.0,    # 0x2104
+                    dc_voltage_v=regs[8] / 10.0,         # 0x2108
+                    output_voltage_v=regs[9] / 10.0,     # 0x2109
+                    motor_speed_rpm=regs[12],             # 0x210C
+                    heatsink_temp_c=regs[10],             # 0x210A
+                    fault_code=fault_code,
                     status_word=status_word,
                 )
             except ModbusException as exc:

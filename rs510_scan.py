@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 """Diagnose-/Scan-Tool für die RS510 Modbus-Verbindung.
 
 RS510 Communication defaults:

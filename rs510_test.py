@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 """Standalone Modbus RTU test script for the RSPro RS510 inverter.
 
 RS510 Communication defaults (from manual):
@@ -32,11 +34,12 @@ REG_CONTROL_CMD   = 0x2000
 REG_FREQ_SETPOINT = 0x2001
 REG_STATUS_WORD   = 0x2100
 
-CMD_STOP          = 0x0000
-CMD_RUN_FORWARD   = 0x0001
-CMD_RUN_REVERSE   = 0x0003
-CMD_RESET_FAULT   = 0x0010
-CMD_EMERGENCY     = 0x0080
+# Confirmed by LinuxCNC vfdb_vfd.c and Delta VFD documentation
+CMD_STOP          = 0x0001  # Bit 0
+CMD_RUN_FORWARD   = 0x0012  # Bit 1 (RUN) + Bit 4 (FWD)
+CMD_RUN_REVERSE   = 0x0022  # Bit 1 (RUN) + Bit 5 (REV)
+CMD_RESET_FAULT   = 0x2000  # Bit 13
+CMD_EMERGENCY     = 0x1000  # Bit 12
 
 # Status word bits
 STATUS_READY   = 0x0001
@@ -80,10 +83,10 @@ async def connect(port: str, baud: int) -> AsyncModbusSerialClient:
 
 
 async def read_status(client: AsyncModbusSerialClient, slave: int) -> None:
-    """Read monitoring registers at 0x2100+."""
+    """Read monitoring registers 0x2100–0x210C (Delta VFD-EL layout)."""
     try:
         result = await client.read_holding_registers(
-            address=REG_STATUS_WORD, count=9, slave=slave,
+            address=0x2100, count=13, slave=slave,
         )
     except ModbusException as exc:
         print(f"Modbus-Fehler: {exc}")
@@ -98,23 +101,33 @@ async def read_status(client: AsyncModbusSerialClient, slave: int) -> None:
         return
 
     r = result.registers
-    sw = r[0]
+    # Delta VFD-EL layout:
+    # [0]=0x2100 fault, [1]=0x2101 status, [2]=0x2102 set freq,
+    # [3]=0x2103 out freq, [4]=0x2104 current, [5-7]=reserved/PID,
+    # [8]=0x2108 DC bus V, [9]=0x2109 out V, [10]=0x210A temp,
+    # [11]=0x210B torque, [12]=0x210C speed
+    fault = r[0]
+    sw = r[1]
     print("─" * 52)
-    print(f"  Status-Word:          0x{sw:04X}")
+    print(f"  Fehlercode (0x2100):  {fault} – {FAULT_CODES.get(fault, 'unbekannt')}")
+    print(f"  Status-Word (0x2101): 0x{sw:04X}")
     print(f"  Bereit:               {'Ja' if sw & STATUS_READY else 'Nein'}")
     print(f"  Läuft:                {'Ja' if sw & STATUS_RUNNING else 'Nein'}")
     print(f"  Richtung:             {'Rückwärts' if sw & STATUS_REVERSE else 'Vorwärts'}")
     print(f"  Fehler aktiv:         {'Ja' if sw & STATUS_FAULT else 'Nein'}")
     print(f"  Warnung:              {'Ja' if sw & STATUS_ALARM else 'Nein'}")
-    print(f"  Sollfrequenz:         {r[1] / 100.0:.2f} Hz")
-    print(f"  Ausgangsfrequenz:     {r[2] / 100.0:.2f} Hz")
-    print(f"  Ausgangsstrom:        {r[3] / 100.0:.2f} A")
-    print(f"  Zwischenkreis-U:      {r[4] / 10.0:.1f} V")
-    print(f"  Ausgangsspannung:     {r[5] / 10.0:.1f} V")
-    print(f"  Motordrehzahl:        {r[6]} RPM")
-    print(f"  Kühlkörpertemp.:      {r[7]} °C")
-    fault = r[8] if len(r) > 8 else 0
-    print(f"  Fehlercode:           {fault} – {FAULT_CODES.get(fault, 'unbekannt')}")
+    print(f"  Sollfrequenz:         {r[2] / 100.0:.2f} Hz   (0x2102)")
+    print(f"  Ausgangsfrequenz:     {r[3] / 100.0:.2f} Hz   (0x2103)")
+    print(f"  Ausgangsstrom:        {r[4] / 100.0:.2f} A    (0x2104)")
+    print(f"  Zwischenkreis-U:      {r[8] / 10.0:.1f} V     (0x2108)")
+    print(f"  Ausgangsspannung:     {r[9] / 10.0:.1f} V     (0x2109)")
+    print(f"  Kühlkörpertemp.:      {r[10]} °C              (0x210A)")
+    print(f"  Drehmoment:           {r[11]} %               (0x210B)")
+    print(f"  Motordrehzahl:        {r[12]} RPM             (0x210C)")
+    print("─" * 52)
+    print(f"\n  Rohdaten 0x2100–0x210C:")
+    for i, v in enumerate(r):
+        print(f"    0x{0x2100 + i:04X} = {v:5d} (0x{v:04X})")
     print("─" * 52)
 
 
