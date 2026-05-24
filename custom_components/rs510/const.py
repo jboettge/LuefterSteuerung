@@ -70,22 +70,30 @@ PARAM_TIMEOUT_ACTION   = 0x0907  # P09-07  0=Decel stop, 1=Coast, 2=Decel2, 3=Co
 # ---------------------------------------------------------------------------
 # Dedicated Modbus control & monitoring registers
 #
-# NOTE: On the RS510-2P7-SH1 the Delta VFD-EL addresses 0x2000/0x2001/0x2100+
-# do NOT exist (exception response 131/134 in probe). Only 0x3000+ respond.
-# The 0x3000 block is used by INVT-branded VFDs; RS510 appears to share this.
+# Probe results on RS510-2P7-SH1:
+#   0x2000/0x2001/0x2100+ → all return exception 131 (ILLEGAL DATA ADDRESS)
+#   0x3000–0x3020 → respond to reads (FC 03) but reject writes (ILLEGAL FUNCTION)
+#   0x1000 → responds to reads (value=0) AND accepts FC 06 writes
+#             Value 0 accepted (stop). Values below P00-13 min-freq rejected.
+#             Hypothesis: 0x1000 = live frequency command register (0.01 Hz).
+#             Writing freq > 0 starts motor; writing 0 stops it.
+#             P00-02=2 (comm run) + P00-05=5 (comm freq) must be set.
 #
 # Prerequisite: set P00-02=2 (run from communication) and
 #               P00-05=5 (frequency from communication) via keypad first.
 # ---------------------------------------------------------------------------
 
-# --- Control command register (write, FC=06) ---
-# 0x2000 does NOT exist on RS510-2P7-SH1; 0x3000 responds and is the candidate.
-REG_CONTROL_CMD      = 0x3000
+# --- Frequency/run command register (read/write, FC=06) ---
+# Writing 0 = stop motor.
+# Writing freq×100 (>= P00-13 minimum, <= P00-12 maximum) = run at that freq.
+# Values below P00-13 (except 0) are rejected by firmware with exception code 1.
+# 0x2000 does NOT exist on RS510-2P7-SH1.
+REG_CONTROL_CMD      = 0x1000  # alias: write 0 to stop
+REG_FREQ_SETPOINT    = 0x1000  # live frequency command (0.01 Hz units)
 
-# Control word bit definitions (written to REG_CONTROL_CMD):
-# Confirmed by LinuxCNC vfdb_vfd.c driver and multiple Delta VFD sources.
-#   Bit 0:  STOP      1=Stop command
-#   Bit 1:  RUN       1=Run command
+# NOTE: The RS510-2P7-SH1 uses a unified frequency+run register at 0x1000.
+# There are no separate bit-field control commands as in the Delta VFD-EL.
+# The CMD_* constants below are kept for reference but NOT used on this device.
 #   Bit 4:  FWD       1=Forward direction
 #   Bit 5:  REV       1=Reverse direction
 #   Bit 12: ESTOP     1=Emergency stop
@@ -97,33 +105,23 @@ CMD_JOG_RUN        = 0x0003  # Bit 0 + Bit 1 (JOG)
 CMD_RESET_FAULT    = 0x2000  # Bit 13
 CMD_EMERGENCY_STOP = 0x1000  # Bit 12
 
-# --- Frequency setpoint register (write, FC=06) ---
-# 0x2001 does NOT exist on RS510-2P7-SH1; frequency is written to PARAM_COMM_FREQ_CMD (P00-08).
-REG_FREQ_SETPOINT    = 0x2001  # 0.01 Hz units – fallback to PARAM_COMM_FREQ_CMD if this fails
-
-# --- Monitoring registers (read, FC=03) ---
-# NOTE: 0x2100+ do NOT exist on RS510-2P7-SH1.
-# 0x3000 responds – the full 0x3000 block is being probed to find monitoring layout.
-# Until confirmed, we fall back to reading individual parameter registers.
-# Tentative layout (INVT VFD convention, unverified on RS510):
-#   0x3000 = control/status word
-#   0x3001 = frequency setpoint (0.01 Hz)
-#   0x3002 = output frequency   (0.01 Hz)
-#   0x3003 = output current     (0.01 A)
-#   0x3004 = DC bus voltage     (0.1 V)
-#   0x3005 = output voltage     (0.1 V)
-#   0x3006 = motor speed        (RPM)
-REG_FAULT_CODE       = 0x2100  # placeholder – does not exist; read PARAM_COMM_FREQ_CMD instead
-REG_STATUS_WORD      = 0x3000  # candidate – value=0 confirmed by probe
-REG_SET_FREQ         = 0x3001  # unverified
-REG_OUT_FREQ         = 0x3002  # unverified
-REG_OUT_CURRENT      = 0x3003  # unverified
-REG_DC_VOLTAGE       = 0x3004  # unverified
-REG_OUT_VOLTAGE      = 0x3005  # unverified
+# --- Monitoring registers (read, FC=03, confirmed responding) ---
+# 0x3000–0x3020 all respond. 0x3001/0x3003/… hold constant values (31,32,33…)
+# that appear to be firmware/model identification, not live monitoring data.
+# Live monitoring layout is TBD — read 0x3000 block while running to decode.
+# Known: 0x301D=1690, 0x301F=1734 (plausible as voltages ×10: 169 V / 173 V).
+# 0x300F=1 and 0x3011=1 mirror P09-00 (slave addr) and a comm setting.
+REG_STATUS_WORD      = 0x3000  # 0 when stopped; expected to change when running
+REG_SET_FREQ         = 0x3001  # constant 31 when stopped – possibly model code
+REG_OUT_FREQ         = 0x3002  # 0 when stopped – candidate output frequency
+REG_OUT_CURRENT      = 0x3004  # 0 when stopped – candidate output current
+REG_DC_VOLTAGE       = 0x301D  # 1690 idle – candidate DC bus voltage (×10 → 169 V)
+REG_OUT_VOLTAGE      = 0x301F  # 1734 idle – candidate output voltage (×10 → 173 V)
 REG_HEATSINK_TEMP    = 0x3006  # unverified
 REG_TORQUE           = 0x3007  # unverified
 REG_MOTOR_SPEED      = 0x3008  # unverified
-# Attempt to read 0x3000–0x300C = 13 registers in one request
+REG_FAULT_CODE       = 0x300B  # unverified (0 when stopped = no fault, plausible)
+# Read 0x3000–0x300C in one request for basic status
 REG_MONITOR_START    = 0x3000
 REG_MONITOR_COUNT    = 13
 
