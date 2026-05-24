@@ -89,7 +89,9 @@ PARAM_TIMEOUT_ACTION   = 0x0907  # P09-07  0=Decel stop, 1=Coast, 2=Decel2, 3=Co
 REG_CONTROL_CMD      = 0x0700  # P07-00: 0=stop, 1=forward, 2=reverse
 
 # --- Frequency command register (FC06 read/write, 0.01 Hz units) ---
-REG_FREQ_SETPOINT    = 0x0701  # P07-01: e.g. 1500 = 15.00 Hz
+# CONFIRMED: writing 5000 to P07-03 caused OL1 overload — motor received power.
+# P07-01 is a status echo only. P07-03 is the live frequency command register.
+REG_FREQ_SETPOINT    = 0x0703  # P07-03: live frequency (0.01 Hz); e.g. 1500 = 15.00 Hz
 
 # Run/Stop command values for REG_CONTROL_CMD (P07-00):
 CMD_STOP           = 0x0000  # stop motor

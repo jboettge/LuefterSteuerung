@@ -31,12 +31,14 @@ from pymodbus.exceptions import ModbusException
 
 # --- Register addresses (confirmed on RS510-2P7-SH1) ---
 # P07-00 (0x0700): Run/Stop command  — 0=stop, 1=forward, 2=reverse
-# P07-01 (0x0701): Frequency setpoint (0.01 Hz) — e.g. 1500 = 15.00 Hz
-# P07-02 (0x0702): Run status readback (1=running forward)
+# P07-03 (0x0703): Live frequency command (0.01 Hz) — CONFIRMED:
+#                  writing 5000 triggered OL1 overload (motor drew current at 50 Hz).
+#                  Use gentle start values (≤2500) on standing motor.
+# P07-01/02 : status echo registers, not live command registers
 # 0x3000+: read-only status block
 # 0x2000/0x2001/0x2100+: do NOT exist on this device
 REG_CONTROL_CMD   = 0x0700  # P07-00: run/stop command
-REG_FREQ_SETPOINT = 0x0008  # P00-08: live communication frequency (resets on disconnect if P09-06=0)
+REG_FREQ_SETPOINT = 0x0703  # P07-03: live frequency command (confirmed)
 REG_STATUS_WORD   = 0x3000
 
 CMD_STOP        = 0x0000
@@ -232,7 +234,7 @@ async def read_param(client: AsyncModbusSerialClient, slave: int, addr_hex: str)
 async def run_heartbeat(
     client: AsyncModbusSerialClient, slave: int, freq_hz: float, interval: float = 1.0,
 ) -> None:
-    """Keep connection open and refresh P00-08 + P07-00 every interval seconds.
+    """Keep connection open and refresh P07-03 (freq) + P07-00 (run) every interval seconds.
 
     Use this when P09-06=0 causes the VFD to reset frequency on disconnect.
     Press Ctrl+C to stop (sends stop command before exiting).
@@ -242,14 +244,14 @@ async def run_heartbeat(
     try:
         iteration = 0
         while True:
-            # Write frequency to P00-08
-            r1 = await client.write_register(address=0x0008, value=freq_value, slave=slave)
+            # Write frequency to P07-03
+            r1 = await client.write_register(address=REG_FREQ_SETPOINT, value=freq_value, slave=slave)
             # Write run-forward to P07-00
             r2 = await client.write_register(address=REG_CONTROL_CMD, value=CMD_RUN_FORWARD, slave=slave)
             ok = not r1.isError() and not r2.isError()
-            if iteration % 5 == 0:  # print status every 5 iterations
+            if iteration % 5 == 0:
                 status = "✓" if ok else "✗"
-                print(f"  [{iteration:4d}] {status} P00-08={freq_value} P07-00={CMD_RUN_FORWARD}")
+                print(f"  [{iteration:4d}] {status} P07-03={freq_value} P07-00={CMD_RUN_FORWARD}")
             iteration += 1
             await asyncio.sleep(interval)
     except KeyboardInterrupt:
