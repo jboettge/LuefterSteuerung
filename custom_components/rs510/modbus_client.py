@@ -78,7 +78,8 @@ class RS510ModbusClient:
         self._client: AsyncModbusSerialClient | None = None
         self._lock = asyncio.Lock()
         self._consecutive_failures = 0
-        self._use_param_freq = False  # fallback: write freq to P00-08 instead of 0x2001
+        # 0x2001 does not exist on RS510-2P7-SH1; always write freq to P00-08 (PARAM_COMM_FREQ_CMD).
+        self._use_param_freq = True
 
     # ------------------------------------------------------------------
     # Connection management
@@ -123,15 +124,20 @@ class RS510ModbusClient:
     # ------------------------------------------------------------------
 
     async def async_read_status(self) -> Optional[RS510Status]:
-        """Read monitoring registers 0x2100–0x210C in a single request.
+        """Read monitoring registers from 0x3000 in a single request.
 
-        Delta VFD-EL register layout:
-          0x2100 = fault code     0x2101 = status word
-          0x2102 = set freq       0x2103 = output freq
-          0x2104 = output current 0x2105-07 = reserved/PID
-          0x2108 = DC bus voltage 0x2109 = output voltage
-          0x210A = heatsink temp  0x210B = torque ratio
-          0x210C = motor speed
+        NOTE: On RS510-2P7-SH1 the Delta VFD-EL range 0x2100+ does not respond.
+        0x3000 is confirmed present (probe value=0). Tentative INVT-style layout:
+          0x3000 = status/control word
+          0x3001 = frequency setpoint (0.01 Hz)
+          0x3002 = output frequency   (0.01 Hz)
+          0x3003 = output current     (0.01 A)
+          0x3004 = DC bus voltage     (0.1 V)
+          0x3005 = output voltage     (0.1 V)
+          0x3006 = heatsink temp      (1 °C)
+          0x3007 = torque ratio       (%)
+          0x3008 = motor speed        (RPM)
+        Register layout is unverified – run rs510_scan.py --probe to confirm.
         """
         async with self._lock:
             if self._client is None:
@@ -148,23 +154,22 @@ class RS510ModbusClient:
 
                 regs = result.registers
                 self._consecutive_failures = 0
-                # Index offsets from REG_MONITOR_START (0x2100)
-                fault_code = regs[0]              # 0x2100
-                status_word = regs[1]             # 0x2101
+                # Tentative index offsets from REG_MONITOR_START (0x3000)
+                status_word = regs[0]             # 0x3000
                 return RS510Status(
                     is_running=bool(status_word & STATUS_BIT_RUNNING),
                     is_reverse=bool(status_word & STATUS_BIT_REVERSE),
                     is_ready=bool(status_word & STATUS_BIT_READY),
                     has_fault=bool(status_word & STATUS_BIT_FAULT),
                     has_alarm=bool(status_word & STATUS_BIT_ALARM),
-                    set_frequency_hz=regs[2] / 100.0,   # 0x2102
-                    output_frequency_hz=regs[3] / 100.0, # 0x2103
-                    output_current_a=regs[4] / 100.0,    # 0x2104
-                    dc_voltage_v=regs[8] / 10.0,         # 0x2108
-                    output_voltage_v=regs[9] / 10.0,     # 0x2109
-                    motor_speed_rpm=regs[12],             # 0x210C
-                    heatsink_temp_c=regs[10],             # 0x210A
-                    fault_code=fault_code,
+                    set_frequency_hz=regs[1] / 100.0,    # 0x3001
+                    output_frequency_hz=regs[2] / 100.0, # 0x3002
+                    output_current_a=regs[3] / 100.0,    # 0x3003
+                    dc_voltage_v=regs[4] / 10.0,         # 0x3004
+                    output_voltage_v=regs[5] / 10.0,     # 0x3005
+                    heatsink_temp_c=regs[6],              # 0x3006
+                    motor_speed_rpm=regs[8],              # 0x3008
+                    fault_code=0,
                     status_word=status_word,
                 )
             except ModbusException as exc:

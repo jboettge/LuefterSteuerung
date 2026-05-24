@@ -29,22 +29,56 @@ SLAVE_RANGE = range(1, 33)  # RS510 supports 1-32
 
 # Registers to try when probing
 PROBE_REGISTERS = [
-    # Dedicated monitoring registers (Delta VFD platform)
-    (0x2100, "Status Word (0x2100)"),
-    (0x2101, "Sollfrequenz (0x2101)"),
-    (0x2102, "Ausgangsfrequenz (0x2102)"),
-    # Parameter registers (guaranteed to exist)
+    # Parameter registers (confirmed working)
     (0x0000, "P00-00 Steuermodus"),
+    (0x0001, "P00-01 Motorrichtung"),
     (0x0002, "P00-02 Steuerquelle"),
     (0x0005, "P00-05 Frequenzquelle"),
     (0x0008, "P00-08 Kommunikationsfrequenz"),
     (0x000C, "P00-12 Max-Frequenz"),
+    (0x000D, "P00-13 Min-Frequenz"),
     (0x0900, "P09-00 Slave-Adresse"),
     (0x0902, "P09-02 Baudrate-Code"),
-    # Alternative monitoring register ranges
+    # Delta VFD-EL dedicated registers (may not exist on RS510)
     (0x2000, "Steuerregister (0x2000)"),
     (0x2001, "Frequenz-Sollwert (0x2001)"),
-    (0x3000, "Alt. Status (0x3000)"),
+    (0x2100, "Status Word (0x2100)"),
+    (0x2101, "Sollfrequenz (0x2101)"),
+    (0x2102, "Ausgangsfrequenz (0x2102)"),
+    # 0x3000 block – found responding on this RS510-2P7-SH1 unit
+    (0x3000, "0x3000 (Steuer/Status?)"),
+    (0x3001, "0x3001"),
+    (0x3002, "0x3002"),
+    (0x3003, "0x3003"),
+    (0x3004, "0x3004"),
+    (0x3005, "0x3005"),
+    (0x3006, "0x3006"),
+    (0x3007, "0x3007"),
+    (0x3008, "0x3008"),
+    (0x3009, "0x3009"),
+    (0x300A, "0x300A"),
+    (0x300B, "0x300B"),
+    (0x300C, "0x300C"),
+    (0x300D, "0x300D"),
+    (0x300E, "0x300E"),
+    (0x300F, "0x300F"),
+    (0x3010, "0x3010"),
+    (0x3011, "0x3011"),
+    (0x3012, "0x3012"),
+    (0x3013, "0x3013"),
+    (0x3014, "0x3014"),
+    (0x3015, "0x3015"),
+    (0x3016, "0x3016"),
+    (0x3017, "0x3017"),
+    (0x3018, "0x3018"),
+    (0x3019, "0x3019"),
+    (0x301A, "0x301A"),
+    (0x301B, "0x301B"),
+    (0x301C, "0x301C"),
+    (0x301D, "0x301D"),
+    (0x301E, "0x301E"),
+    (0x301F, "0x301F"),
+    (0x3020, "0x3020"),
 ]
 
 
@@ -122,8 +156,9 @@ async def probe(port: str, slave: int, baud: int) -> None:
         else:
             print(f"  0x{addr:04X}  {desc:45s}  \033[31m✗\033[0m")
     print()
-    print("Hinweis: Falls nur Parameter-Register (0x0000-0x0D08) antworten,")
-    print("aber 0x2000/0x2100 nicht, nutzt der RS510 ggf. nur Parameter-Zugriff.")
+    print("Hinweis: Auf dem RS510-2P7-SH1 antworten nur Parameter-Register (0x0000-0x0D08)")
+    print("und 0x3000+. Wenn 0x3001-0x300C antworten, sind das wahrscheinlich die")
+    print("Monitoring-Register. Wenn 0x3000 schreibbar ist, ist es das Steuerregister.")
 
 
 async def main() -> None:
