@@ -1,0 +1,98 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "RS510 inverter",
+        "description": "Connect to an RSPro RS510 / TECO L510 inverter via Modbus RTU.\n\nPrerequisites (set once on the inverter keypad):\n- P00-02 = 2  (run source: communication)\n- P00-05 = 5  (frequency source: communication)",
+        "data": {
+          "serial_port": "Serial port",
+          "baudrate": "Baud rate",
+          "slave_address": "Modbus slave address",
+          "min_frequency": "Minimum frequency (Hz)",
+          "max_frequency": "Maximum frequency (Hz)",
+          "poll_interval": "Poll interval (seconds)"
+        },
+        "data_description": {
+          "serial_port": "Path to the RS485 adapter, e.g. /dev/ttyUSB0 or /dev/ttyACM0",
+          "baudrate": "Default from factory: 19200 (P09-02 = 2)",
+          "slave_address": "P09-00 on the inverter (factory default: 1)",
+          "min_frequency": "Corresponds to 0 % fan speed (P00-13 on the inverter)",
+          "max_frequency": "Corresponds to 100 % fan speed (P00-12, factory default: 50 Hz)",
+          "poll_interval": "How often Home Assistant reads the inverter status"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot open serial port. Check cable and port path.",
+      "cannot_read": "Connected to port, but inverter did not respond. Check slave address, baud rate and wiring.",
+      "freq_range_invalid": "Minimum frequency must be less than maximum frequency."
+    },
+    "abort": {
+      "already_configured": "This inverter is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "RS510 options",
+        "data": {
+          "min_frequency": "Minimum frequency (Hz)",
+          "max_frequency": "Maximum frequency (Hz)",
+          "poll_interval": "Poll interval (seconds)"
+        },
+        "data_description": {
+          "min_frequency": "Corresponds to 0 % fan speed",
+          "max_frequency": "Corresponds to 100 % fan speed",
+          "poll_interval": "How often Home Assistant reads the inverter status"
+        }
+      }
+    },
+    "error": {
+      "freq_range_invalid": "Minimum frequency must be less than maximum frequency."
+    }
+  },
+  "entity": {
+    "fan": {
+      "rs510_fan": {
+        "state_attributes": {
+          "preset_mode": {
+            "state": {
+              "Niedrig": "Low",
+              "Mittel": "Medium",
+              "Hoch": "High"
+            }
+          }
+        }
+      }
+    },
+    "sensor": {
+      "output_frequency": {
+        "name": "Output frequency"
+      },
+      "set_frequency": {
+        "name": "Set frequency"
+      },
+      "output_current": {
+        "name": "Output current"
+      },
+      "output_voltage": {
+        "name": "Output voltage"
+      },
+      "dc_bus_voltage": {
+        "name": "DC bus voltage"
+      },
+      "motor_speed": {
+        "name": "Motor speed"
+      },
+      "heatsink_temp": {
+        "name": "Heatsink temperature"
+      },
+      "fault_code": {
+        "name": "Fault"
+      },
+      "status": {
+        "name": "Status"
+      }
+    }
+  }
+}
