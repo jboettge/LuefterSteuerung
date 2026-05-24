@@ -37,17 +37,29 @@ PROBE_REGISTERS = [
     (0x0008, "P00-08 Kommunikationsfrequenz"),
     (0x000C, "P00-12 Max-Frequenz"),
     (0x000D, "P00-13 Min-Frequenz"),
+    # Unprobed parameter groups — check if they exist
+    (0x0100, "P01-00 (Motorgruppe?)"),
+    (0x0200, "P02-00 (Schutzgruppe?)"),
+    (0x0300, "P03-00 (Analog I/O?)"),
+    (0x0400, "P04-00 (Digital I/O?)"),
+    (0x0500, "P05-00 (Mehrfachfreq.?)"),
+    (0x0600, "P06-00 (Erweitert?)"),
+    (0x0700, "P07-00 (Komm.befehl?)"),
+    (0x0701, "P07-01"),
+    (0x0702, "P07-02"),
+    (0x0703, "P07-03"),
+    (0x0704, "P07-04"),
+    (0x0800, "P08-00 (PID?)"),
+    (0x0A00, "P10-00 (Gruppe 10?)"),
+    (0x0B00, "P11-00 (Gruppe 11?)"),
+    (0x0C00, "P12-00 (Gruppe 12?)"),
+    (0x0D00, "P13-00 (Gruppe 13?)"),
     (0x0900, "P09-00 Slave-Adresse"),
     (0x0902, "P09-02 Baudrate-Code"),
     # INVT-style control block (GD100/CHF series)
-    (0x1000, "0x1000 INVT Steuerregister?"),
-    (0x1001, "0x1001 INVT Frequenz-Sollwert?"),
-    (0x1002, "0x1002 INVT Status?"),
-    (0x1003, "0x1003"),
-    (0x1004, "0x1004"),
-    (0x1005, "0x1005"),
-    (0x100A, "0x100A"),
-    (0x100F, "0x100F"),
+    (0x1000, "0x1000 (FC03 read, FC06 write=0 only)"),
+    (0x1001, "0x1001"),
+    (0x1002, "0x1002"),
     # Delta VFD-EL dedicated registers (may not exist on RS510)
     (0x2000, "Steuerregister (0x2000)"),
     (0x2001, "Frequenz-Sollwert (0x2001)"),
@@ -154,20 +166,51 @@ async def scan(port: str, quick: bool) -> None:
         print("  5. RS485-Adapter funktionsfähig? (LED-Blinken prüfen)")
 
 
+async def try_read_fc04(
+    port: str, baud: int, parity: str, stopbits: int, slave: int,
+    address: int = 0x0000, timeout: float = 0.3,
+) -> int | None:
+    """Try reading a single INPUT register (FC 04)."""
+    client = AsyncModbusSerialClient(
+        port=port, baudrate=baud, bytesize=8, parity=parity,
+        stopbits=stopbits, timeout=timeout, retries=0,
+    )
+    try:
+        if not await client.connect():
+            return None
+        result = await client.read_input_registers(address=address, count=1, slave=slave)
+        if result is None or result.isError():
+            return None
+        return result.registers[0]
+    except Exception:
+        return None
+    finally:
+        client.close()
+
+
 async def probe(port: str, slave: int, baud: int) -> None:
-    print(f"Probe Register bei Slave {slave} @ {baud} baud ...\n")
+    print(f"Probe Holding-Register (FC03) bei Slave {slave} @ {baud} baud ...\n")
     print(f"{'Adresse':>8}  {'Beschreibung':45s}  Ergebnis")
     print("─" * 75)
     for addr, desc in PROBE_REGISTERS:
         val = await try_read(port, baud, "N", 1, slave, address=addr, timeout=0.5)
         if val is not None:
-            print(f"  0x{addr:04X}  {desc:45s}  \033[32m✓ = {val} (0x{val:04X})\033[0m")
+            print(f"  0x{addr:04X}  {desc:45s}  \033[32m✓ FC03={val} (0x{val:04X})\033[0m")
         else:
             print(f"  0x{addr:04X}  {desc:45s}  \033[31m✗\033[0m")
+
+    print()
+    print("─" * 75)
+    print("Probe Input-Register (FC04) — Adressen 0x0000–0x000F und 0x3000–0x300F")
+    print("─" * 75)
+    fc04_addrs = list(range(0x0000, 0x0010)) + list(range(0x3000, 0x3010))
+    for addr in fc04_addrs:
+        val = await try_read_fc04(port, baud, "N", 1, slave, address=addr, timeout=0.5)
+        if val is not None:
+            print(f"  0x{addr:04X}  {'FC04 Input-Register':45s}  \033[32m✓ FC04={val} (0x{val:04X})\033[0m")
     print()
     print("Hinweis: Auf dem RS510-2P7-SH1 antworten nur Parameter-Register (0x0000-0x0D08)")
-    print("und 0x3000+. Wenn 0x3001-0x300C antworten, sind das wahrscheinlich die")
-    print("Monitoring-Register. Wenn 0x3000 schreibbar ist, ist es das Steuerregister.")
+    print("und 0x3000+. 0x1000 reagiert nur auf Schreiben von 0 (sonst exception 1).")
 
 
 async def main() -> None:

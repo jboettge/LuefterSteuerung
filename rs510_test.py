@@ -177,6 +177,36 @@ async def set_frequency(client: AsyncModbusSerialClient, slave: int, freq_hz: fl
         print(f"Modbus-Fehler: {exc}")
 
 
+async def read_input_registers(client: AsyncModbusSerialClient, slave: int, start_hex: str, count: int) -> None:
+    """FC 04: read input registers (separate address space from holding registers)."""
+    addr = int(start_hex, 16)
+    try:
+        result = await client.read_input_registers(address=addr, count=count, slave=slave)
+        if result.isError():
+            print(f"FC04 Lesefehler ab 0x{addr:04X}: {result}")
+        else:
+            print(f"FC04 Input-Register ab 0x{addr:04X}:")
+            print("─" * 52)
+            for i, v in enumerate(result.registers):
+                print(f"  0x{addr + i:04X} = {v:6d}  (0x{v:04X})")
+            print("─" * 52)
+    except ModbusException as exc:
+        print(f"Modbus-Fehler FC04: {exc}")
+
+
+async def write_coil(client: AsyncModbusSerialClient, slave: int, addr_hex: str, on: bool) -> None:
+    """FC 05: write single coil (discrete output)."""
+    addr = int(addr_hex, 16)
+    try:
+        result = await client.write_coil(address=addr, value=on, slave=slave)
+        if result.isError():
+            print(f"FC05 Schreibfehler Coil 0x{addr:04X}: {result}")
+        else:
+            print(f"OK: FC05 Coil 0x{addr:04X} = {'EIN' if on else 'AUS'}")
+    except ModbusException as exc:
+        print(f"Modbus-Fehler FC05: {exc}")
+
+
 async def read_param(client: AsyncModbusSerialClient, slave: int, addr_hex: str) -> None:
     addr = int(addr_hex, 16)
     try:
@@ -270,14 +300,13 @@ async def main() -> None:
             val = int(raw_val, 0)
             await write_param_fc16(client, args.slave, addr_hex, val)
         elif action.startswith("scan="):
-            # Read a range of registers: scan=<start-hex>,<count>
             parts = action.split("=", 1)[1].split(",", 1)
             if len(parts) != 2:
                 print("Syntax: scan=<hex-start>,<count>  z.B. scan=3000,32")
                 sys.exit(1)
             start_addr = int(parts[0], 16)
             count = int(parts[1], 0)
-            print(f"Lese {count} Register ab 0x{start_addr:04X} ...")
+            print(f"FC03 Lese {count} Register ab 0x{start_addr:04X} ...")
             print("─" * 52)
             try:
                 result = await client.read_holding_registers(
@@ -291,10 +320,25 @@ async def main() -> None:
             except ModbusException as exc:
                 print(f"Modbus-Fehler: {exc}")
             print("─" * 52)
+        elif action.startswith("fc04="):
+            # FC 04 read input registers
+            parts = action.split("=", 1)[1].split(",", 1)
+            if len(parts) != 2:
+                print("Syntax: fc04=<hex-start>,<count>  z.B. fc04=0000,16")
+                sys.exit(1)
+            await read_input_registers(client, args.slave, parts[0], int(parts[1], 0))
+        elif action.startswith("coil="):
+            # FC 05 write coil
+            parts = action.split("=", 1)[1].split(",", 1)
+            if len(parts) != 2:
+                print("Syntax: coil=<hex-addr>,<0|1>  z.B. coil=0000,1")
+                sys.exit(1)
+            await write_coil(client, args.slave, parts[0], parts[1].strip() != "0")
         else:
             print(f"Unbekannte Aktion: {args.action}")
             print("Aktionen: status | run | run_rev | stop | emergency | reset | freq=<Hz>")
-            print("          param=<hex> | write=<hex>,<val> | write16=<hex>,<val> | scan=<hex>,<count>")
+            print("          param=<hex> | write=<hex>,<val> | write16=<hex>,<val>")
+            print("          scan=<hex>,<count> | fc04=<hex>,<count> | coil=<hex>,<0|1>")
             sys.exit(1)
     finally:
         client.close()
