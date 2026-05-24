@@ -96,6 +96,7 @@ _SENSORS: tuple[RS510SensorDescription, ...] = (
         native_unit_of_measurement=UnitOfRotationalSpeed.REVOLUTIONS_PER_MINUTE,
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:rotate-right",
+        entity_registry_enabled_default=False,
         value_fn=lambda s: s.motor_speed_rpm,
     ),
     RS510SensorDescription(

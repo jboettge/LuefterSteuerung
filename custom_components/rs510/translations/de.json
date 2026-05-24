@@ -1,0 +1,98 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "RS510 Umrichter einrichten",
+        "description": "Verbindung zu einem RSPro RS510 / TECO L510 Umrichter über Modbus RTU.\n\nVoraussetzungen (einmalig am Umrichter-Tastenfeld setzen):\n- P00-02 = 2  (Steuerquelle: Kommunikation)\n- P00-05 = 5  (Frequenzquelle: Kommunikation)",
+        "data": {
+          "serial_port": "Serieller Port",
+          "baudrate": "Baudrate",
+          "slave_address": "Modbus Slave-Adresse",
+          "min_frequency": "Mindestfrequenz (Hz)",
+          "max_frequency": "Höchstfrequenz (Hz)",
+          "poll_interval": "Abfrageintervall (Sekunden)"
+        },
+        "data_description": {
+          "serial_port": "Pfad zum RS485-Adapter, z. B. /dev/ttyUSB0 oder /dev/ttyACM0",
+          "baudrate": "Werkseinstellung: 19200 (P09-02 = 2)",
+          "slave_address": "P09-00 am Umrichter (Werkseinstellung: 1)",
+          "min_frequency": "Entspricht 0 % Lüftergeschwindigkeit (P00-13 am Umrichter)",
+          "max_frequency": "Entspricht 100 % Lüftergeschwindigkeit (P00-12, Standard: 50 Hz)",
+          "poll_interval": "Wie oft Home Assistant den Umrichterstatus liest"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Serieller Port konnte nicht geöffnet werden. Kabel und Port-Pfad prüfen.",
+      "cannot_read": "Port geöffnet, aber Umrichter hat nicht geantwortet. Slave-Adresse, Baudrate und Verkabelung prüfen.",
+      "freq_range_invalid": "Mindestfrequenz muss kleiner als Höchstfrequenz sein."
+    },
+    "abort": {
+      "already_configured": "Dieser Umrichter ist bereits konfiguriert."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "RS510 Optionen",
+        "data": {
+          "min_frequency": "Mindestfrequenz (Hz)",
+          "max_frequency": "Höchstfrequenz (Hz)",
+          "poll_interval": "Abfrageintervall (Sekunden)"
+        },
+        "data_description": {
+          "min_frequency": "Entspricht 0 % Lüftergeschwindigkeit",
+          "max_frequency": "Entspricht 100 % Lüftergeschwindigkeit",
+          "poll_interval": "Wie oft Home Assistant den Umrichterstatus liest"
+        }
+      }
+    },
+    "error": {
+      "freq_range_invalid": "Mindestfrequenz muss kleiner als Höchstfrequenz sein."
+    }
+  },
+  "entity": {
+    "fan": {
+      "rs510_fan": {
+        "state_attributes": {
+          "preset_mode": {
+            "state": {
+              "Niedrig": "Niedrig",
+              "Mittel": "Mittel",
+              "Hoch": "Hoch"
+            }
+          }
+        }
+      }
+    },
+    "sensor": {
+      "output_frequency": {
+        "name": "Ausgangsfrequenz"
+      },
+      "set_frequency": {
+        "name": "Sollfrequenz"
+      },
+      "output_current": {
+        "name": "Ausgangsstrom"
+      },
+      "output_voltage": {
+        "name": "Ausgangsspannung"
+      },
+      "dc_bus_voltage": {
+        "name": "Zwischenkreisspannung"
+      },
+      "motor_speed": {
+        "name": "Motordrehzahl"
+      },
+      "heatsink_temp": {
+        "name": "Kühlkörpertemperatur"
+      },
+      "fault_code": {
+        "name": "Fehler"
+      },
+      "status": {
+        "name": "Status"
+      }
+    }
+  }
+}

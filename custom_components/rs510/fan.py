@@ -48,7 +48,10 @@ class RS510Fan(CoordinatorEntity[RS510DataUpdateCoordinator], FanEntity):
     _attr_name = None
     _attr_icon = "mdi:fan"
     _attr_supported_features = (
-        FanEntityFeature.SET_SPEED | FanEntityFeature.PRESET_MODE
+        FanEntityFeature.SET_SPEED
+        | FanEntityFeature.PRESET_MODE
+        | FanEntityFeature.TURN_ON
+        | FanEntityFeature.TURN_OFF
     )
     _attr_preset_modes = _PRESET_MODES
     _attr_speed_count = 100
@@ -149,9 +152,8 @@ class RS510Fan(CoordinatorEntity[RS510DataUpdateCoordinator], FanEntity):
 
     async def _apply_percentage(self, percentage: int) -> None:
         freq = self._pct_to_freq(percentage)
+        # async_set_frequency writes frequency then run-forward in one sequence
         ok = await self._client.async_set_frequency(freq)
-        if ok and not self.is_on:
-            ok = await self._client.async_run_forward()
         if ok:
             self._opt_percentage = percentage
             self._opt_preset = None
@@ -161,8 +163,6 @@ class RS510Fan(CoordinatorEntity[RS510DataUpdateCoordinator], FanEntity):
     async def _apply_preset(self, preset_mode: str) -> None:
         freq = PRESET_FREQUENCY[preset_mode]
         ok = await self._client.async_set_frequency(freq)
-        if ok and not self.is_on:
-            ok = await self._client.async_run_forward()
         if ok:
             self._opt_percentage = self._freq_to_pct(freq)
             self._opt_preset = preset_mode
