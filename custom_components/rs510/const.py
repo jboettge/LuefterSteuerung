@@ -69,14 +69,18 @@ PARAM_TIMEOUT_ACTION   = 0x0907  # P09-07  0=Decel stop, 1=Coast, 2=Decel2, 3=Co
 
 # ---------------------------------------------------------------------------
 # Dedicated Modbus control & monitoring registers
-# (Delta VFD platform — outside the parameter address space)
+#
+# NOTE: On the RS510-2P7-SH1 the Delta VFD-EL addresses 0x2000/0x2001/0x2100+
+# do NOT exist (exception response 131/134 in probe). Only 0x3000+ respond.
+# The 0x3000 block is used by INVT-branded VFDs; RS510 appears to share this.
 #
 # Prerequisite: set P00-02=2 (run from communication) and
 #               P00-05=5 (frequency from communication) via keypad first.
 # ---------------------------------------------------------------------------
 
 # --- Control command register (write, FC=06) ---
-REG_CONTROL_CMD      = 0x2000
+# 0x2000 does NOT exist on RS510-2P7-SH1; 0x3000 responds and is the candidate.
+REG_CONTROL_CMD      = 0x3000
 
 # Control word bit definitions (written to REG_CONTROL_CMD):
 # Confirmed by LinuxCNC vfdb_vfd.c driver and multiple Delta VFD sources.
@@ -94,25 +98,33 @@ CMD_RESET_FAULT    = 0x2000  # Bit 13
 CMD_EMERGENCY_STOP = 0x1000  # Bit 12
 
 # --- Frequency setpoint register (write, FC=06) ---
-REG_FREQ_SETPOINT    = 0x2001  # 0.01 Hz units  (e.g. 5000 = 50.00 Hz)
+# 0x2001 does NOT exist on RS510-2P7-SH1; frequency is written to PARAM_COMM_FREQ_CMD (P00-08).
+REG_FREQ_SETPOINT    = 0x2001  # 0.01 Hz units – fallback to PARAM_COMM_FREQ_CMD if this fails
 
 # --- Monitoring registers (read, FC=03) ---
-# Layout for Delta VFD-EL platform (RS510).
-# Register offsets confirmed by LinuxCNC and Delta forum sources.
-# 0x2100 holds the error/fault code, 0x2101 holds operational status.
-REG_FAULT_CODE       = 0x2100  # Current fault / error code
-REG_STATUS_WORD      = 0x2101  # Inverter operational status
-REG_SET_FREQ         = 0x2102  # Frequency command       (0.01 Hz)
-REG_OUT_FREQ         = 0x2103  # Actual output frequency (0.01 Hz)
-REG_OUT_CURRENT      = 0x2104  # Output current          (0.01 A)
-# 0x2105–0x2107: reserved / PID feedback (model-dependent)
-REG_DC_VOLTAGE       = 0x2108  # DC bus voltage          (0.1 V)
-REG_OUT_VOLTAGE      = 0x2109  # Output voltage          (0.1 V)
-REG_HEATSINK_TEMP    = 0x210A  # IGBT/heatsink temp      (1 °C)
-REG_TORQUE           = 0x210B  # Torque ratio            (%)
-REG_MOTOR_SPEED      = 0x210C  # Motor speed             (RPM)
-# Read 0x2100–0x210C = 13 registers in one request
-REG_MONITOR_START    = 0x2100
+# NOTE: 0x2100+ do NOT exist on RS510-2P7-SH1.
+# 0x3000 responds – the full 0x3000 block is being probed to find monitoring layout.
+# Until confirmed, we fall back to reading individual parameter registers.
+# Tentative layout (INVT VFD convention, unverified on RS510):
+#   0x3000 = control/status word
+#   0x3001 = frequency setpoint (0.01 Hz)
+#   0x3002 = output frequency   (0.01 Hz)
+#   0x3003 = output current     (0.01 A)
+#   0x3004 = DC bus voltage     (0.1 V)
+#   0x3005 = output voltage     (0.1 V)
+#   0x3006 = motor speed        (RPM)
+REG_FAULT_CODE       = 0x2100  # placeholder – does not exist; read PARAM_COMM_FREQ_CMD instead
+REG_STATUS_WORD      = 0x3000  # candidate – value=0 confirmed by probe
+REG_SET_FREQ         = 0x3001  # unverified
+REG_OUT_FREQ         = 0x3002  # unverified
+REG_OUT_CURRENT      = 0x3003  # unverified
+REG_DC_VOLTAGE       = 0x3004  # unverified
+REG_OUT_VOLTAGE      = 0x3005  # unverified
+REG_HEATSINK_TEMP    = 0x3006  # unverified
+REG_TORQUE           = 0x3007  # unverified
+REG_MOTOR_SPEED      = 0x3008  # unverified
+# Attempt to read 0x3000–0x300C = 13 registers in one request
+REG_MONITOR_START    = 0x3000
 REG_MONITOR_COUNT    = 13
 
 # Status word bit definitions (read from REG_STATUS_WORD = 0x2101):

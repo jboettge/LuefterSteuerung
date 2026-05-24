@@ -29,10 +29,13 @@ import sys
 from pymodbus.client import AsyncModbusSerialClient
 from pymodbus.exceptions import ModbusException
 
-# --- Register addresses (Delta VFD platform) ---
-REG_CONTROL_CMD   = 0x2000
-REG_FREQ_SETPOINT = 0x2001
-REG_STATUS_WORD   = 0x2100
+# --- Register addresses ---
+# NOTE: On this RS510-2P7-SH1 unit 0x2000/0x2001/0x2100+ do NOT respond.
+# 0x3000 is the only non-parameter register that answers (probe value=0).
+# Hypothesis: 0x3000 is the actual control/status register on INVT-class VFDs.
+REG_CONTROL_CMD   = 0x3000  # was 0x2000 – does not exist on this device
+REG_FREQ_SETPOINT = 0x2001  # still unknown; freq written to P00-08 (0x0008) as fallback
+REG_STATUS_WORD   = 0x3000  # was 0x2100 – does not exist on this device
 
 # Confirmed by LinuxCNC vfdb_vfd.c and Delta VFD documentation
 CMD_STOP          = 0x0001  # Bit 0
@@ -203,6 +206,18 @@ async def read_param(client: AsyncModbusSerialClient, slave: int, addr_hex: str)
         print(f"Modbus-Fehler: {exc}")
 
 
+async def write_param(client: AsyncModbusSerialClient, slave: int, addr_hex: str, value: int) -> None:
+    addr = int(addr_hex, 16)
+    try:
+        result = await client.write_register(address=addr, value=value, slave=slave)
+        if result.isError():
+            print(f"Schreibfehler Register 0x{addr:04X}: {result}")
+        else:
+            print(f"OK: Register 0x{addr:04X} = {value} (0x{value:04X}) geschrieben")
+    except ModbusException as exc:
+        print(f"Modbus-Fehler: {exc}")
+
+
 async def main() -> None:
     parser = argparse.ArgumentParser(description="RSPro RS510 Modbus RTU Testskript")
     parser.add_argument("--port", default="/dev/ttyACM0", help="Serieller Port")
@@ -210,7 +225,7 @@ async def main() -> None:
     parser.add_argument("--slave", type=int, default=1, help="Modbus Slave-Adresse (1–32)")
     parser.add_argument(
         "action", nargs="?", default="status",
-        help="status | run | run_rev | stop | emergency | reset | freq=<Hz> | param=<hex>",
+        help="status | run | run_rev | stop | emergency | reset | freq=<Hz> | param=<hex> | write=<hex>,<val>",
     )
     args = parser.parse_args()
 
@@ -235,9 +250,17 @@ async def main() -> None:
         elif action.startswith("param="):
             addr_hex = action.split("=", 1)[1]
             await read_param(client, args.slave, addr_hex)
+        elif action.startswith("write="):
+            parts = action.split("=", 1)[1].split(",", 1)
+            if len(parts) != 2:
+                print("Syntax: write=<hex-addr>,<int-wert>  z.B. write=3000,18")
+                sys.exit(1)
+            addr_hex, raw_val = parts
+            val = int(raw_val, 0)  # supports 0x... or decimal
+            await write_param(client, args.slave, addr_hex, val)
         else:
             print(f"Unbekannte Aktion: {args.action}")
-            print("Aktionen: status | run | run_rev | stop | emergency | reset | freq=<Hz> | param=<hex>")
+            print("Aktionen: status | run | run_rev | stop | emergency | reset | freq=<Hz> | param=<hex> | write=<hex>,<val>")
             sys.exit(1)
     finally:
         client.close()
