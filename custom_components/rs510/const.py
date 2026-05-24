@@ -79,49 +79,49 @@ PARAM_TIMEOUT_ACTION   = 0x0907  # P09-07  0=Decel stop, 1=Coast, 2=Decel2, 3=Co
 REG_CONTROL_CMD      = 0x2000
 
 # Control word bit definitions (written to REG_CONTROL_CMD):
-#   Bit 0:  RUN       1=Run, 0=Stop
-#   Bit 1:  DIRECTION  1=Reverse, 0=Forward
-#   Bit 2:  JOG FWD   1=Jog forward
-#   Bit 3:  JOG REV   1=Jog reverse
-#   Bit 4:  RESET     1=Fault reset (self-clearing)
-#   Bits 5-15: Reserved (write 0)
-CMD_STOP          = 0x0000  # All bits 0 → stop
-CMD_RUN_FORWARD   = 0x0001  # Bit 0=1
-CMD_RUN_REVERSE   = 0x0003  # Bit 0=1, Bit 1=1
-CMD_JOG_FORWARD   = 0x0005  # Bit 0=1, Bit 2=1
-CMD_JOG_REVERSE   = 0x000B  # Bit 0=1, Bit 1=1, Bit 3=1
-CMD_RESET_FAULT   = 0x0010  # Bit 4=1
-CMD_EMERGENCY_STOP = 0x0080  # Bit 7=1
+# Confirmed by LinuxCNC vfdb_vfd.c driver and multiple Delta VFD sources.
+#   Bit 0:  STOP      1=Stop command
+#   Bit 1:  RUN       1=Run command
+#   Bit 4:  FWD       1=Forward direction
+#   Bit 5:  REV       1=Reverse direction
+#   Bit 12: ESTOP     1=Emergency stop
+#   Bit 13: RESET     1=Fault reset
+CMD_STOP           = 0x0001  # Bit 0
+CMD_RUN_FORWARD    = 0x0012  # Bit 1 (RUN) + Bit 4 (FWD)
+CMD_RUN_REVERSE    = 0x0022  # Bit 1 (RUN) + Bit 5 (REV)
+CMD_JOG_RUN        = 0x0003  # Bit 0 + Bit 1 (JOG)
+CMD_RESET_FAULT    = 0x2000  # Bit 13
+CMD_EMERGENCY_STOP = 0x1000  # Bit 12
 
 # --- Frequency setpoint register (write, FC=06) ---
 REG_FREQ_SETPOINT    = 0x2001  # 0.01 Hz units  (e.g. 5000 = 50.00 Hz)
 
 # --- Monitoring registers (read, FC=03) ---
-REG_STATUS_WORD      = 0x2100  # Status word
-REG_SET_FREQ         = 0x2101  # Set frequency         (0.01 Hz)
-REG_OUT_FREQ         = 0x2102  # Actual output freq    (0.01 Hz)
-REG_OUT_CURRENT      = 0x2103  # Output current        (0.01 A)
-REG_DC_VOLTAGE       = 0x2104  # DC bus voltage        (0.1 V)
-REG_OUT_VOLTAGE      = 0x2105  # Output voltage        (0.1 V)
-REG_MOTOR_SPEED      = 0x2106  # Motor speed           (RPM)
-REG_HEATSINK_TEMP    = 0x2107  # Heatsink temperature  (1 °C)
-# Number of consecutive monitoring registers to read in one request
-REG_MONITOR_COUNT    = 8
+# Layout for Delta VFD-EL platform (RS510).
+# Register offsets confirmed by LinuxCNC and Delta forum sources.
+# 0x2100 holds the error/fault code, 0x2101 holds operational status.
+REG_FAULT_CODE       = 0x2100  # Current fault / error code
+REG_STATUS_WORD      = 0x2101  # Inverter operational status
+REG_SET_FREQ         = 0x2102  # Frequency command       (0.01 Hz)
+REG_OUT_FREQ         = 0x2103  # Actual output frequency (0.01 Hz)
+REG_OUT_CURRENT      = 0x2104  # Output current          (0.01 A)
+# 0x2105–0x2107: reserved / PID feedback (model-dependent)
+REG_DC_VOLTAGE       = 0x2108  # DC bus voltage          (0.1 V)
+REG_OUT_VOLTAGE      = 0x2109  # Output voltage          (0.1 V)
+REG_HEATSINK_TEMP    = 0x210A  # IGBT/heatsink temp      (1 °C)
+REG_TORQUE           = 0x210B  # Torque ratio            (%)
+REG_MOTOR_SPEED      = 0x210C  # Motor speed             (RPM)
+# Read 0x2100–0x210C = 13 registers in one request
+REG_MONITOR_START    = 0x2100
+REG_MONITOR_COUNT    = 13
 
-# Status word bit definitions (read from REG_STATUS_WORD):
-#   Bit 0:  READY     1=Drive ready
-#   Bit 1:  RUNNING   1=Motor running
-#   Bit 2:  REVERSE   1=Reverse direction
-#   Bit 3:  FAULT     1=Fault active
-#   Bit 4:  ALARM     1=Warning/Alarm
+# Status word bit definitions (read from REG_STATUS_WORD = 0x2101):
+# Exact bit definitions may vary — verify empirically with rs510_test.py.
 STATUS_BIT_READY   = 0x0001
 STATUS_BIT_RUNNING = 0x0002
 STATUS_BIT_REVERSE = 0x0004
 STATUS_BIT_FAULT   = 0x0008
 STATUS_BIT_ALARM   = 0x0010
-
-# --- Fault code register ---
-REG_FAULT_CODE       = 0x2108  # Current fault code (if present)
 
 # ---------------------------------------------------------------------------
 # Preset speed modes
