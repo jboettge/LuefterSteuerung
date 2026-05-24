@@ -1,4 +1,4 @@
-"""Sensor platform for the RSPro RS511 integration."""
+"""Sensor platform for the RSPro RS510 integration."""
 
 from __future__ import annotations
 
@@ -17,24 +17,25 @@ from homeassistant.const import (
     UnitOfElectricPotential,
     UnitOfFrequency,
     UnitOfRotationalSpeed,
+    UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from . import RS511DataUpdateCoordinator
+from . import RS510DataUpdateCoordinator
 from .const import DOMAIN, FAULT_CODES
-from .modbus_client import RS511Status
+from .modbus_client import RS510Status
 
 
 @dataclass(frozen=True, kw_only=True)
-class RS511SensorDescription(SensorEntityDescription):
-    value_fn: Callable[[RS511Status], float | int | str | None]
+class RS510SensorDescription(SensorEntityDescription):
+    value_fn: Callable[[RS510Status], float | int | str | None]
 
 
-_SENSORS: tuple[RS511SensorDescription, ...] = (
-    RS511SensorDescription(
+_SENSORS: tuple[RS510SensorDescription, ...] = (
+    RS510SensorDescription(
         key="output_frequency",
         translation_key="output_frequency",
         name="Ausgangsfrequenz",
@@ -42,9 +43,22 @@ _SENSORS: tuple[RS511SensorDescription, ...] = (
         device_class=SensorDeviceClass.FREQUENCY,
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:sine-wave",
+        suggested_display_precision=2,
         value_fn=lambda s: round(s.output_frequency_hz, 2),
     ),
-    RS511SensorDescription(
+    RS510SensorDescription(
+        key="set_frequency",
+        translation_key="set_frequency",
+        name="Sollfrequenz",
+        native_unit_of_measurement=UnitOfFrequency.HERTZ,
+        device_class=SensorDeviceClass.FREQUENCY,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:sine-wave",
+        entity_registry_enabled_default=False,
+        suggested_display_precision=2,
+        value_fn=lambda s: round(s.set_frequency_hz, 2),
+    ),
+    RS510SensorDescription(
         key="output_current",
         translation_key="output_current",
         name="Ausgangsstrom",
@@ -54,7 +68,7 @@ _SENSORS: tuple[RS511SensorDescription, ...] = (
         suggested_display_precision=2,
         value_fn=lambda s: round(s.output_current_a, 2),
     ),
-    RS511SensorDescription(
+    RS510SensorDescription(
         key="output_voltage",
         translation_key="output_voltage",
         name="Ausgangsspannung",
@@ -64,7 +78,7 @@ _SENSORS: tuple[RS511SensorDescription, ...] = (
         suggested_display_precision=1,
         value_fn=lambda s: round(s.output_voltage_v, 1),
     ),
-    RS511SensorDescription(
+    RS510SensorDescription(
         key="dc_bus_voltage",
         translation_key="dc_bus_voltage",
         name="Zwischenkreisspannung",
@@ -75,7 +89,7 @@ _SENSORS: tuple[RS511SensorDescription, ...] = (
         suggested_display_precision=1,
         value_fn=lambda s: round(s.dc_voltage_v, 1),
     ),
-    RS511SensorDescription(
+    RS510SensorDescription(
         key="motor_speed",
         translation_key="motor_speed",
         name="Motordrehzahl",
@@ -84,15 +98,24 @@ _SENSORS: tuple[RS511SensorDescription, ...] = (
         icon="mdi:rotate-right",
         value_fn=lambda s: s.motor_speed_rpm,
     ),
-    RS511SensorDescription(
+    RS510SensorDescription(
+        key="heatsink_temp",
+        translation_key="heatsink_temp",
+        name="Kühlkörpertemperatur",
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_registry_enabled_default=False,
+        value_fn=lambda s: s.heatsink_temp_c,
+    ),
+    RS510SensorDescription(
         key="fault_code",
         translation_key="fault_code",
         name="Fehlercode",
         icon="mdi:alert-circle-outline",
-        # No unit — shown as a descriptive string
         value_fn=lambda s: FAULT_CODES.get(s.fault_code, f"Fehler {s.fault_code}"),
     ),
-    RS511SensorDescription(
+    RS510SensorDescription(
         key="status",
         translation_key="status",
         name="Status",
@@ -102,7 +125,7 @@ _SENSORS: tuple[RS511SensorDescription, ...] = (
 )
 
 
-def _status_string(status: RS511Status) -> str:
+def _status_string(status: RS510Status) -> str:
     if status.has_fault:
         return "Fehler"
     if status.is_running:
@@ -118,23 +141,21 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     data = hass.data[DOMAIN][entry.entry_id]
-    coordinator: RS511DataUpdateCoordinator = data["coordinator"]
+    coordinator: RS510DataUpdateCoordinator = data["coordinator"]
     async_add_entities(
-        RS511Sensor(coordinator, entry, description) for description in _SENSORS
+        RS510Sensor(coordinator, entry, desc) for desc in _SENSORS
     )
 
 
-class RS511Sensor(CoordinatorEntity[RS511DataUpdateCoordinator], SensorEntity):
-    """A single diagnostic sensor reading one value from the RS511 status."""
-
-    entity_description: RS511SensorDescription
+class RS510Sensor(CoordinatorEntity[RS510DataUpdateCoordinator], SensorEntity):
+    entity_description: RS510SensorDescription
     _attr_has_entity_name = True
 
     def __init__(
         self,
-        coordinator: RS511DataUpdateCoordinator,
+        coordinator: RS510DataUpdateCoordinator,
         entry: ConfigEntry,
-        description: RS511SensorDescription,
+        description: RS510SensorDescription,
     ) -> None:
         super().__init__(coordinator)
         self.entity_description = description
@@ -143,7 +164,7 @@ class RS511Sensor(CoordinatorEntity[RS511DataUpdateCoordinator], SensorEntity):
             identifiers={(DOMAIN, entry.entry_id)},
             name=entry.title,
             manufacturer="RSPro",
-            model="RS511",
+            model="RS510-2P7-SH1",
         )
 
     @property
