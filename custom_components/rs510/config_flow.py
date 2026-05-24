@@ -1,4 +1,4 @@
-"""Config flow for the RSPro RS511 integration."""
+"""Config flow for the RSPro RS510 integration."""
 
 from __future__ import annotations
 
@@ -21,22 +21,22 @@ from .const import (
     DEFAULT_SLAVE_ADDRESS,
     DOMAIN,
 )
-from .modbus_client import RS511ModbusClient
+from .modbus_client import RS510ModbusClient
 
-_BAUDRATES = [1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200]
+_BAUDRATES = [4800, 9600, 19200, 38400]
 
 STEP_USER_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_SERIAL_PORT, default="/dev/ttyUSB0"): str,
         vol.Required(CONF_BAUDRATE, default=DEFAULT_BAUDRATE): vol.In(_BAUDRATES),
         vol.Required(CONF_SLAVE_ADDRESS, default=DEFAULT_SLAVE_ADDRESS): vol.All(
-            int, vol.Range(min=1, max=247)
+            int, vol.Range(min=1, max=32)
         ),
         vol.Required(CONF_MIN_FREQUENCY, default=DEFAULT_MIN_FREQUENCY): vol.All(
-            vol.Coerce(float), vol.Range(min=0.0, max=400.0)
+            vol.Coerce(float), vol.Range(min=0.0, max=599.0)
         ),
         vol.Required(CONF_MAX_FREQUENCY, default=DEFAULT_MAX_FREQUENCY): vol.All(
-            vol.Coerce(float), vol.Range(min=1.0, max=400.0)
+            vol.Coerce(float), vol.Range(min=1.0, max=599.0)
         ),
         vol.Required(CONF_POLL_INTERVAL, default=DEFAULT_POLL_INTERVAL): vol.All(
             int, vol.Range(min=5, max=300)
@@ -45,23 +45,21 @@ STEP_USER_SCHEMA = vol.Schema(
 )
 
 
-class RS511ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for RS511."""
+class RS510ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+    """Handle a config flow for RS510."""
 
     VERSION = 1
 
     async def async_step_user(
         self, user_input: dict | None = None
     ) -> FlowResult:
-        """First (and only) config step: collect connection parameters."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
             if user_input[CONF_MIN_FREQUENCY] >= user_input[CONF_MAX_FREQUENCY]:
                 errors["base"] = "freq_range_invalid"
             else:
-                # Try to open the port and read one status register
-                client = RS511ModbusClient(
+                client = RS510ModbusClient(
                     port=user_input[CONF_SERIAL_PORT],
                     baudrate=user_input[CONF_BAUDRATE],
                     slave_address=user_input[CONF_SLAVE_ADDRESS],
@@ -84,7 +82,7 @@ class RS511ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 await self.async_set_unique_id(unique_id)
                 self._abort_if_unique_id_configured()
                 return self.async_create_entry(
-                    title=f"RS511 ({user_input[CONF_SERIAL_PORT]})",
+                    title=f"RS510 ({user_input[CONF_SERIAL_PORT]})",
                     data=user_input,
                 )
 
@@ -92,22 +90,17 @@ class RS511ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="user",
             data_schema=STEP_USER_SCHEMA,
             errors=errors,
-            description_placeholders={
-                "serial_port_hint": "/dev/ttyUSB0 oder /dev/ttyS0",
-            },
         )
 
     @staticmethod
     @callback
     def async_get_options_flow(
         config_entry: config_entries.ConfigEntry,
-    ) -> RS511OptionsFlow:
-        return RS511OptionsFlow(config_entry)
+    ) -> RS510OptionsFlow:
+        return RS510OptionsFlow(config_entry)
 
 
-class RS511OptionsFlow(config_entries.OptionsFlow):
-    """Options flow for adjusting poll interval and frequency limits."""
-
+class RS510OptionsFlow(config_entries.OptionsFlow):
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         self._entry = config_entry
 
@@ -128,11 +121,11 @@ class RS511OptionsFlow(config_entries.OptionsFlow):
                 vol.Required(
                     CONF_MIN_FREQUENCY,
                     default=data.get(CONF_MIN_FREQUENCY, DEFAULT_MIN_FREQUENCY),
-                ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=400.0)),
+                ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=599.0)),
                 vol.Required(
                     CONF_MAX_FREQUENCY,
                     default=data.get(CONF_MAX_FREQUENCY, DEFAULT_MAX_FREQUENCY),
-                ): vol.All(vol.Coerce(float), vol.Range(min=1.0, max=400.0)),
+                ): vol.All(vol.Coerce(float), vol.Range(min=1.0, max=599.0)),
                 vol.Required(
                     CONF_POLL_INTERVAL,
                     default=data.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL),

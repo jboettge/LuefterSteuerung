@@ -1,10 +1,10 @@
 {
-  "domain": "rs511",
-  "name": "RSPro RS511 Umrichter (Modbus RTU)",
+  "domain": "rs510",
+  "name": "RSPro RS510 Umrichter (Modbus RTU)",
   "version": "1.0.0",
   "documentation": "https://github.com/jboettge/lueftersteuerung",
   "issue_tracker": "https://github.com/jboettge/lueftersteuerung/issues",
-  "requirements": ["pymodbus==3.8.6"],
+  "requirements": ["pymodbus>=3.6.0"],
   "dependencies": [],
   "codeowners": ["@jboettge"],
   "config_flow": true,

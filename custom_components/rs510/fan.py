@@ -1,4 +1,4 @@
-"""Fan platform for the RSPro RS511 integration."""
+"""Fan platform for the RSPro RS510 integration."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from . import RS511DataUpdateCoordinator
+from . import RS510DataUpdateCoordinator
 from .const import (
     CONF_MAX_FREQUENCY,
     CONF_MIN_FREQUENCY,
@@ -37,16 +37,12 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     data = hass.data[DOMAIN][entry.entry_id]
-    coordinator: RS511DataUpdateCoordinator = data["coordinator"]
-    async_add_entities([RS511Fan(coordinator, entry)])
+    coordinator: RS510DataUpdateCoordinator = data["coordinator"]
+    async_add_entities([RS510Fan(coordinator, entry)])
 
 
-class RS511Fan(CoordinatorEntity[RS511DataUpdateCoordinator], FanEntity):
-    """Fan entity that represents the RS511 inverter output.
-
-    Percentage (1–100 %) maps linearly from min_frequency to max_frequency.
-    Percentage 0 means the fan is off (stop command sent to inverter).
-    """
+class RS510Fan(CoordinatorEntity[RS510DataUpdateCoordinator], FanEntity):
+    """Fan entity that maps percentage 1–100 % linearly to min–max Hz."""
 
     _attr_has_entity_name = True
     _attr_name = None
@@ -55,11 +51,11 @@ class RS511Fan(CoordinatorEntity[RS511DataUpdateCoordinator], FanEntity):
         FanEntityFeature.SET_SPEED | FanEntityFeature.PRESET_MODE
     )
     _attr_preset_modes = _PRESET_MODES
-    _attr_speed_count = 100  # 1 % resolution
+    _attr_speed_count = 100
 
     def __init__(
         self,
-        coordinator: RS511DataUpdateCoordinator,
+        coordinator: RS510DataUpdateCoordinator,
         entry: ConfigEntry,
     ) -> None:
         super().__init__(coordinator)
@@ -68,19 +64,18 @@ class RS511Fan(CoordinatorEntity[RS511DataUpdateCoordinator], FanEntity):
             identifiers={(DOMAIN, entry.entry_id)},
             name=entry.title,
             manufacturer="RSPro",
-            model="RS511",
+            model="RS510-2P7-SH1",
         )
         self._min_freq: float = entry.data.get(CONF_MIN_FREQUENCY, DEFAULT_MIN_FREQUENCY)
         self._max_freq: float = entry.data.get(CONF_MAX_FREQUENCY, DEFAULT_MAX_FREQUENCY)
         self._client = coordinator.client
 
-        # Local shadow of the last commanded state (used optimistically between polls)
-        self._optimistic_percentage: int | None = None
-        self._optimistic_preset: str | None = None
-        self._optimistic_on: bool | None = None
+        self._opt_percentage: int | None = None
+        self._opt_preset: str | None = None
+        self._opt_on: bool | None = None
 
     # ------------------------------------------------------------------
-    # Properties derived from coordinator data
+    # Properties
     # ------------------------------------------------------------------
 
     @property
@@ -89,24 +84,24 @@ class RS511Fan(CoordinatorEntity[RS511DataUpdateCoordinator], FanEntity):
 
     @property
     def is_on(self) -> bool:
-        if self._optimistic_on is not None:
-            return self._optimistic_on
+        if self._opt_on is not None:
+            return self._opt_on
         if self.coordinator.data is None:
             return False
         return self.coordinator.data.is_running
 
     @property
     def percentage(self) -> int | None:
-        if self._optimistic_percentage is not None:
-            return self._optimistic_percentage
+        if self._opt_percentage is not None:
+            return self._opt_percentage
         if self.coordinator.data is None or not self.coordinator.data.is_running:
             return 0
         return self._freq_to_pct(self.coordinator.data.output_frequency_hz)
 
     @property
     def preset_mode(self) -> str | None:
-        if self._optimistic_preset is not None:
-            return self._optimistic_preset
+        if self._opt_preset is not None:
+            return self._opt_preset
         if self.coordinator.data is None or not self.coordinator.data.is_running:
             return None
         current_freq = self.coordinator.data.output_frequency_hz
@@ -130,14 +125,13 @@ class RS511Fan(CoordinatorEntity[RS511DataUpdateCoordinator], FanEntity):
         elif percentage is not None:
             await self._apply_percentage(percentage)
         else:
-            # Default: medium speed
             await self._apply_preset(PRESET_MEDIUM)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         if await self._client.async_stop():
-            self._optimistic_on = False
-            self._optimistic_percentage = 0
-            self._optimistic_preset = None
+            self._opt_on = False
+            self._opt_percentage = 0
+            self._opt_preset = None
             self.async_write_ha_state()
 
     async def async_set_percentage(self, percentage: int) -> None:
@@ -159,9 +153,9 @@ class RS511Fan(CoordinatorEntity[RS511DataUpdateCoordinator], FanEntity):
         if ok and not self.is_on:
             ok = await self._client.async_run_forward()
         if ok:
-            self._optimistic_percentage = percentage
-            self._optimistic_preset = None
-            self._optimistic_on = True
+            self._opt_percentage = percentage
+            self._opt_preset = None
+            self._opt_on = True
             self.async_write_ha_state()
 
     async def _apply_preset(self, preset_mode: str) -> None:
@@ -170,18 +164,16 @@ class RS511Fan(CoordinatorEntity[RS511DataUpdateCoordinator], FanEntity):
         if ok and not self.is_on:
             ok = await self._client.async_run_forward()
         if ok:
-            self._optimistic_percentage = self._freq_to_pct(freq)
-            self._optimistic_preset = preset_mode
-            self._optimistic_on = True
+            self._opt_percentage = self._freq_to_pct(freq)
+            self._opt_preset = preset_mode
+            self._opt_on = True
             self.async_write_ha_state()
 
     def _pct_to_freq(self, percentage: int) -> float:
-        """Map 1–100 % to min_frequency–max_frequency Hz."""
         pct = max(0, min(100, percentage))
         return self._min_freq + (pct / 100.0) * (self._max_freq - self._min_freq)
 
     def _freq_to_pct(self, frequency_hz: float) -> int:
-        """Map a frequency in Hz back to 0–100 %."""
         if self._max_freq <= self._min_freq:
             return 100
         pct = (frequency_hz - self._min_freq) / (self._max_freq - self._min_freq) * 100
@@ -189,8 +181,7 @@ class RS511Fan(CoordinatorEntity[RS511DataUpdateCoordinator], FanEntity):
 
     @callback
     def _handle_coordinator_update(self) -> None:
-        # Clear optimistic state once real data arrives
-        self._optimistic_percentage = None
-        self._optimistic_preset = None
-        self._optimistic_on = None
+        self._opt_percentage = None
+        self._opt_preset = None
+        self._opt_on = None
         super()._handle_coordinator_update()
