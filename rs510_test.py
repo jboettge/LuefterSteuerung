@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 """Standalone Modbus RTU test script for the RSPro RS510 inverter.
 
 RS510 Communication defaults (from manual):
