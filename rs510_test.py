@@ -218,6 +218,22 @@ async def write_param(client: AsyncModbusSerialClient, slave: int, addr_hex: str
         print(f"Modbus-Fehler: {exc}")
 
 
+async def write_param_fc16(client: AsyncModbusSerialClient, slave: int, addr_hex: str, value: int) -> None:
+    """Write a single register using FC 16 (write_registers) instead of FC 06.
+
+    Some VFDs reject FC 06 for the control register block but accept FC 16.
+    """
+    addr = int(addr_hex, 16)
+    try:
+        result = await client.write_registers(address=addr, values=[value], slave=slave)
+        if result.isError():
+            print(f"Schreibfehler FC16 Register 0x{addr:04X}: {result}")
+        else:
+            print(f"OK: FC16 Register 0x{addr:04X} = {value} (0x{value:04X}) geschrieben")
+    except ModbusException as exc:
+        print(f"Modbus-Fehler FC16: {exc}")
+
+
 async def main() -> None:
     parser = argparse.ArgumentParser(description="RSPro RS510 Modbus RTU Testskript")
     parser.add_argument("--port", default="/dev/ttyACM0", help="Serieller Port")
@@ -258,9 +274,41 @@ async def main() -> None:
             addr_hex, raw_val = parts
             val = int(raw_val, 0)  # supports 0x... or decimal
             await write_param(client, args.slave, addr_hex, val)
+        elif action.startswith("write16="):
+            # FC 16 (write multiple registers) – some VFDs reject FC 06 for control blocks
+            parts = action.split("=", 1)[1].split(",", 1)
+            if len(parts) != 2:
+                print("Syntax: write16=<hex-addr>,<int-wert>  z.B. write16=3000,18")
+                sys.exit(1)
+            addr_hex, raw_val = parts
+            val = int(raw_val, 0)
+            await write_param_fc16(client, args.slave, addr_hex, val)
+        elif action.startswith("scan="):
+            # Read a range of registers: scan=<start-hex>,<count>
+            parts = action.split("=", 1)[1].split(",", 1)
+            if len(parts) != 2:
+                print("Syntax: scan=<hex-start>,<count>  z.B. scan=3000,32")
+                sys.exit(1)
+            start_addr = int(parts[0], 16)
+            count = int(parts[1], 0)
+            print(f"Lese {count} Register ab 0x{start_addr:04X} ...")
+            print("─" * 52)
+            try:
+                result = await client.read_holding_registers(
+                    address=start_addr, count=count, slave=args.slave,
+                )
+                if result.isError():
+                    print(f"Fehler: {result}")
+                else:
+                    for i, v in enumerate(result.registers):
+                        print(f"  0x{start_addr + i:04X} = {v:6d}  (0x{v:04X})")
+            except ModbusException as exc:
+                print(f"Modbus-Fehler: {exc}")
+            print("─" * 52)
         else:
             print(f"Unbekannte Aktion: {args.action}")
-            print("Aktionen: status | run | run_rev | stop | emergency | reset | freq=<Hz> | param=<hex> | write=<hex>,<val>")
+            print("Aktionen: status | run | run_rev | stop | emergency | reset | freq=<Hz>")
+            print("          param=<hex> | write=<hex>,<val> | write16=<hex>,<val> | scan=<hex>,<count>")
             sys.exit(1)
     finally:
         client.close()
