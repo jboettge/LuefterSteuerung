@@ -1,11 +1,11 @@
 {
   "domain": "rs510",
-  "name": "RSPro RS510 Umrichter (Modbus RTU)",
+  "name": "RSPro RS510 / TECO L510 Umrichter (Modbus RTU)",
   "version": "1.0.0",
+  "homeassistant": "2024.2.0",
   "documentation": "https://github.com/jboettge/lueftersteuerung",
   "issue_tracker": "https://github.com/jboettge/lueftersteuerung/issues",
   "requirements": ["pymodbus>=3.6.0"],
-  "dependencies": [],
   "codeowners": ["@jboettge"],
   "config_flow": true,
   "iot_class": "local_polling",
