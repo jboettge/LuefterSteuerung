@@ -52,6 +52,11 @@
     }
   },
   "entity": {
+    "switch": {
+      "run_switch": {
+        "name": "Betrieb"
+      }
+    },
     "fan": {
       "rs510_fan": {
         "state_attributes": {
