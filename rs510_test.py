@@ -32,7 +32,13 @@ from pymodbus.exceptions import ModbusException
 
 # pymodbus 2.x uses unit=, pymodbus 3.x uses slave=
 _PMVER = tuple(int(x) for x in pymodbus.__version__.split(".")[:2])
-_SLAVE_KEY = "slave" if _PMVER >= (3, 0) else "unit"
+# pymodbus <3.0 → unit=, 3.0–3.6 → slave=, ≥3.7 → slave_id=
+if _PMVER >= (3, 7):
+    _SLAVE_KEY = "slave_id"
+elif _PMVER >= (3, 0):
+    _SLAVE_KEY = "slave"
+else:
+    _SLAVE_KEY = "unit"
 
 def _sk(slave_id: int) -> dict:
     """Return the correct slave/unit kwarg for the installed pymodbus version."""
