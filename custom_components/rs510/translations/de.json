@@ -52,6 +52,11 @@
     }
   },
   "entity": {
+    "number": {
+      "frequency_setpoint": {
+        "name": "Sollfrequenz"
+      }
+    },
     "switch": {
       "run_switch": {
         "name": "Betrieb"

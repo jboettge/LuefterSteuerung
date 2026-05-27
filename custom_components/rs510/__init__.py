@@ -22,7 +22,7 @@ from .modbus_client import RS510ModbusClient, RS510Status
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = ["fan", "sensor", "switch"]
+PLATFORMS = ["fan", "number", "sensor", "switch"]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

@@ -52,6 +52,11 @@
     }
   },
   "entity": {
+    "number": {
+      "frequency_setpoint": {
+        "name": "Frequency setpoint"
+      }
+    },
     "switch": {
       "run_switch": {
         "name": "Run"
