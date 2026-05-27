@@ -26,8 +26,25 @@ import argparse
 import asyncio
 import sys
 
+import pymodbus
 from pymodbus.client import AsyncModbusSerialClient
 from pymodbus.exceptions import ModbusException
+
+# Detect the slave-address keyword for the installed pymodbus version:
+#   <3.0 → unit=   3.0–3.12 → slave=   3.13+ → device_id=
+import inspect as _inspect
+_rhr_params = _inspect.signature(AsyncModbusSerialClient.read_holding_registers).parameters
+if "device_id" in _rhr_params:
+    _SLAVE_KEY = "device_id"
+elif "slave" in _rhr_params:
+    _SLAVE_KEY = "slave"
+elif "slave_id" in _rhr_params:
+    _SLAVE_KEY = "slave_id"
+else:
+    _SLAVE_KEY = "unit"
+
+def _sk(slave_id: int) -> dict:
+    return {_SLAVE_KEY: slave_id}
 
 # --- Register addresses (L510 manual, Appendix 3) ---
 # 0x2501: Operation Signal (bit0=Run, bit1=Reverse, bit3=Reset)
@@ -99,7 +116,7 @@ async def read_status(client: AsyncModbusSerialClient, slave: int) -> None:
     """Read monitoring registers 0x2520–0x2532 (L510 Appendix 3 layout)."""
     try:
         result = await client.read_holding_registers(
-            REG_MONITOR_START, REG_MONITOR_COUNT, slave,
+            REG_MONITOR_START, count=REG_MONITOR_COUNT, **_sk(slave),
         )
     except ModbusException as exc:
         print(f"Modbus-Fehler: {exc}")
@@ -156,7 +173,7 @@ async def read_param_status(client: AsyncModbusSerialClient, slave: int) -> None
     print("─" * 52)
     for addr, desc, div, unit in params:
         try:
-            result = await client.read_holding_registers(addr, 1, slave)
+            result = await client.read_holding_registers(addr, count=1, **_sk(slave))
             if result.isError():
                 print(f"  {desc:30s}  Fehler")
             else:
@@ -172,7 +189,7 @@ async def read_param_status(client: AsyncModbusSerialClient, slave: int) -> None
 
 async def write_cmd(client: AsyncModbusSerialClient, slave: int, cmd: int, label: str) -> None:
     try:
-        result = await client.write_register(REG_CONTROL_CMD, cmd, slave)
+        result = await client.write_register(REG_CONTROL_CMD, cmd, **_sk(slave))
         if result.isError():
             print(f"Schreibfehler ({label}): {result}")
         else:
@@ -185,12 +202,12 @@ async def set_frequency(client: AsyncModbusSerialClient, slave: int, freq_hz: fl
     """Write frequency to 0x2502 and send run-forward command to 0x2501."""
     value = int(round(freq_hz * 100))
     try:
-        result = await client.write_register(REG_FREQ_SETPOINT, value, slave)
+        result = await client.write_register(REG_FREQ_SETPOINT, value, **_sk(slave))
         if result.isError():
             print(f"Schreibfehler Frequenz (0x{REG_FREQ_SETPOINT:04X}): {result}")
             return
         print(f"OK: Frequenz {freq_hz:.2f} Hz gesetzt (0x2502 = {value})")
-        result2 = await client.write_register(REG_CONTROL_CMD, CMD_RUN_FORWARD, slave)
+        result2 = await client.write_register(REG_CONTROL_CMD, CMD_RUN_FORWARD, **_sk(slave))
         if result2.isError():
             print(f"Schreibfehler Run-Befehl (0x{REG_CONTROL_CMD:04X}): {result2}")
         else:
@@ -203,7 +220,7 @@ async def read_input_registers(client: AsyncModbusSerialClient, slave: int, star
     """FC 04: read input registers (separate address space from holding registers)."""
     addr = int(start_hex, 16)
     try:
-        result = await client.read_input_registers(addr, count, slave)
+        result = await client.read_input_registers(addr, count=count, **_sk(slave))
         if result.isError():
             print(f"FC04 Lesefehler ab 0x{addr:04X}: {result}")
         else:
@@ -220,7 +237,7 @@ async def write_coil(client: AsyncModbusSerialClient, slave: int, addr_hex: str,
     """FC 05: write single coil (discrete output)."""
     addr = int(addr_hex, 16)
     try:
-        result = await client.write_coil(addr, on, slave)
+        result = await client.write_coil(addr, on, **_sk(slave))
         if result.isError():
             print(f"FC05 Schreibfehler Coil 0x{addr:04X}: {result}")
         else:
@@ -232,7 +249,7 @@ async def write_coil(client: AsyncModbusSerialClient, slave: int, addr_hex: str,
 async def read_param(client: AsyncModbusSerialClient, slave: int, addr_hex: str) -> None:
     addr = int(addr_hex, 16)
     try:
-        result = await client.read_holding_registers(addr, 1, slave)
+        result = await client.read_holding_registers(addr, count=1, **_sk(slave))
         if result.isError():
             print(f"Lesefehler Register 0x{addr:04X}: {result}")
         else:
@@ -255,8 +272,8 @@ async def run_heartbeat(
     try:
         iteration = 0
         while True:
-            r1 = await client.write_register(REG_FREQ_SETPOINT, freq_value, slave)
-            r2 = await client.write_register(REG_CONTROL_CMD, CMD_RUN_FORWARD, slave)
+            r1 = await client.write_register(REG_FREQ_SETPOINT, freq_value, **_sk(slave))
+            r2 = await client.write_register(REG_CONTROL_CMD, CMD_RUN_FORWARD, **_sk(slave))
             ok = not r1.isError() and not r2.isError()
             if iteration % 5 == 0:
                 status = "✓" if ok else "✗"
@@ -265,14 +282,14 @@ async def run_heartbeat(
             await asyncio.sleep(interval)
     except KeyboardInterrupt:
         print("\nStoppe Motor ...")
-        await client.write_register(REG_CONTROL_CMD, CMD_STOP, slave)
+        await client.write_register(REG_CONTROL_CMD, CMD_STOP, **_sk(slave))
         print("Stopp-Befehl gesendet.")
 
 
 async def write_param(client: AsyncModbusSerialClient, slave: int, addr_hex: str, value: int) -> None:
     addr = int(addr_hex, 16)
     try:
-        result = await client.write_register(addr, value, slave)
+        result = await client.write_register(addr, value, **_sk(slave))
         if result.isError():
             print(f"Schreibfehler Register 0x{addr:04X}: {result}")
         else:
@@ -288,7 +305,7 @@ async def write_param_fc16(client: AsyncModbusSerialClient, slave: int, addr_hex
     """
     addr = int(addr_hex, 16)
     try:
-        result = await client.write_registers(addr, [value], slave)
+        result = await client.write_registers(addr, [value], **_sk(slave))
         if result.isError():
             print(f"Schreibfehler FC16 Register 0x{addr:04X}: {result}")
         else:
@@ -362,7 +379,7 @@ async def main() -> None:
             print("─" * 52)
             try:
                 result = await client.read_holding_registers(
-                    start_addr, count, args.slave,
+                    start_addr, count=count, **_sk(args.slave),
                 )
                 if result.isError():
                     print(f"Fehler: {result}")

@@ -7,8 +7,24 @@ import logging
 from dataclasses import dataclass
 from typing import Optional
 
+import inspect as _inspect
+
 from pymodbus.client import AsyncModbusSerialClient
 from pymodbus.exceptions import ModbusException
+
+# Detect slave-address keyword name for the installed pymodbus version
+_rhr_params = _inspect.signature(AsyncModbusSerialClient.read_holding_registers).parameters
+if "device_id" in _rhr_params:
+    _SLAVE_KEY = "device_id"
+elif "slave" in _rhr_params:
+    _SLAVE_KEY = "slave"
+elif "slave_id" in _rhr_params:
+    _SLAVE_KEY = "slave_id"
+else:
+    _SLAVE_KEY = "unit"
+
+def _sk(slave_id: int) -> dict:
+    return {_SLAVE_KEY: slave_id}
 
 from .const import (
     CMD_RESET_FAULT,
@@ -141,7 +157,7 @@ class RS510ModbusClient:
                 return None
             try:
                 result = await self._client.read_holding_registers(
-                    REG_MONITOR_START, REG_MONITOR_COUNT, self._slave,
+                    REG_MONITOR_START, count=REG_MONITOR_COUNT, **_sk(self._slave),
                 )
                 if result.isError():
                     self._on_failure("read monitoring registers error: %s", result)
@@ -215,7 +231,7 @@ class RS510ModbusClient:
                 return None
             try:
                 result = await self._client.read_holding_registers(
-                    address, 1, self._slave,
+                    address, count=1, **_sk(self._slave),
                 )
                 if result.isError():
                     return None
@@ -240,7 +256,7 @@ class RS510ModbusClient:
                 return False
             try:
                 result = await self._client.write_register(
-                    address, value, self._slave,
+                    address, value, **_sk(self._slave),
                 )
                 if result.isError():
                     _LOGGER.error(
