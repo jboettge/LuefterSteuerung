@@ -69,9 +69,11 @@ class RS510ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 if not connected:
                     errors["base"] = "cannot_connect"
                 else:
-                    status = await client.async_read_status()
+                    # Verify the inverter responds by reading P00-00 (0x0000),
+                    # which is always present on L510/RS510 devices.
+                    val = await client.async_read_parameter(0x0000)
                     await client.async_disconnect()
-                    if status is None:
+                    if val is None:
                         errors["base"] = "cannot_read"
 
             if not errors:
