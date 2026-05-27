@@ -16,7 +16,6 @@ from homeassistant.const import (
     UnitOfElectricCurrent,
     UnitOfElectricPotential,
     UnitOfFrequency,
-    UnitOfRotationalSpeed,
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant
@@ -88,16 +87,6 @@ _SENSORS: tuple[RS510SensorDescription, ...] = (
         entity_registry_enabled_default=False,
         suggested_display_precision=1,
         value_fn=lambda s: round(s.dc_voltage_v, 1),
-    ),
-    RS510SensorDescription(
-        key="motor_speed",
-        translation_key="motor_speed",
-        name="Motordrehzahl",
-        native_unit_of_measurement=UnitOfRotationalSpeed.REVOLUTIONS_PER_MINUTE,
-        state_class=SensorStateClass.MEASUREMENT,
-        icon="mdi:rotate-right",
-        entity_registry_enabled_default=False,
-        value_fn=lambda s: s.motor_speed_rpm,
     ),
     RS510SensorDescription(
         key="heatsink_temp",
