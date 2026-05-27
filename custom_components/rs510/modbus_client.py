@@ -141,9 +141,7 @@ class RS510ModbusClient:
                 return None
             try:
                 result = await self._client.read_holding_registers(
-                    address=REG_MONITOR_START,
-                    count=REG_MONITOR_COUNT,
-                    slave=self._slave,
+                    REG_MONITOR_START, REG_MONITOR_COUNT, self._slave,
                 )
                 if result.isError():
                     self._on_failure("read monitoring registers error: %s", result)
@@ -217,7 +215,7 @@ class RS510ModbusClient:
                 return None
             try:
                 result = await self._client.read_holding_registers(
-                    address=address, count=1, slave=self._slave,
+                    address, 1, self._slave,
                 )
                 if result.isError():
                     return None
@@ -242,7 +240,7 @@ class RS510ModbusClient:
                 return False
             try:
                 result = await self._client.write_register(
-                    address=address, value=value, slave=self._slave,
+                    address, value, self._slave,
                 )
                 if result.isError():
                     _LOGGER.error(
